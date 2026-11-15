@@ -1,0 +1,10 @@
+{
+  "name": "arthurtavares-site",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "python -m http.server 4173 --bind 127.0.0.1 --directory dist",
+    "test": "node tests/site.cjs"
+  },
+  "devDependencies": { "playwright": "1.65.1" }
+}
