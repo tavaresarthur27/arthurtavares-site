@@ -785,7 +785,9 @@ function prepMixamo(gl,tdir){                                        // tdir: pa
   // capacete no lugar do boné (o crânio vai de ~3 cm abaixo a ~16 cm acima do osso Head)
   const hat=tdir&&root.getObjectByName('Hats');
   if(hat){const c=new THREE.Mesh(hat.geometry,hat.material.clone());c.material.skinning=false;c.castShadow=true;   // chapéu vira peça rígida presa à cabeça (pode voar no headshot)
-    hat.matrixWorld.decompose(c.position,c.quaternion,c.scale);hat.visible=false;c.name='capacete';root.add(c);c.updateMatrixWorld();B.Head.attach(c)}
+    hat.matrixWorld.decompose(c.position,c.quaternion,c.scale);hat.visible=false;
+    c.geometry.computeBoundingBox();const hc=c.geometry.boundingBox.getCenter(new THREE.Vector3());c.updateMatrix();c.position.copy(hc).applyMatrix4(c.matrix);c.geometry=c.geometry.clone().translate(-hc.x,-hc.y,-hc.z); // origem no centro do capacete (vinha nos pés: solto, ele ficava no ar)
+    c.name='capacete';root.add(c);c.updateMatrixWorld();B.Head.attach(c)}
   else{const hp=wp('Head');part(EG.helm,EM.helm,[.13,.118,.145],V(hp.x,hp.y+.068,hp.z+.012),'Head','capacete')}
   // caixas de acerto nos ossos
   const HB=new THREE.MeshBasicMaterial({visible:false}),YA=V(0,1,0);
@@ -1002,7 +1004,7 @@ function kill(e,hs,dir,pt,force){                                  // dir/pt/for
     const h=e.helm,c=new THREE.Mesh(h.geometry,h.material);   // malha nova: clone() copiaria userData.owner (circular)
     h.getWorldPosition(c.position);h.getWorldQuaternion(c.quaternion);h.getWorldScale(c.scale);h.visible=false;c.castShadow=true;scene.add(c);
     const a=new THREE.Vector3(e.x-P.x,0,e.z-P.z).normalize();
-    drops.push({m:c,v:new THREE.Vector3(a.x*2.6+(Math.random()-.5),3.4,a.z*2.6+(Math.random()-.5)),w:new THREE.Vector3(7,0,5),t:0,fy:.03,rx:0});
+    drops.push({m:c,v:new THREE.Vector3(a.x*2.6+(Math.random()-.5),3.4,a.z*2.6+(Math.random()-.5)),w:new THREE.Vector3(7,0,5),t:0,fy:Math.max(.03,-new THREE.Box3().setFromBufferAttribute(c.geometry.attributes.position).min.y*c.scale.y),rx:0});
     const p=e.g.position.clone();p.y=1.75;burst(p,10,bloodM,4,.06,14,.8,null)}
   dying.push(ragdoll(e,dir,pt,force||3));
   score+=hs?150:100;money+=hs?150:100;beep(160,.3,'sawtooth',.06);
