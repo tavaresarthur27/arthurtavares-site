@@ -864,7 +864,16 @@ function makeSoldier3D(){
   ['fire','hit','stop'].forEach(k=>{if(A[k]){A[k].setLoop(THREE.LoopOnce,1);A[k].clampWhenFinished=false;A[k].stop()}});   // disparadas uma vez
   if(A.hit)A.hit.timeScale=1.6;
   ['back','crouch'].forEach(k=>{if(A[k])A[k].setEffectiveWeight(0)});
-  return {g:holder,mx,A,bones,hit,head,helm:g.getObjectByName('capacete'),gun:g.getObjectByName('fuzil'),muzzle:g.getObjectByName('boca')};
+  const muzzle=g.getObjectByName('boca');enemyGun(muzzle);
+  return {g:holder,mx,A,bones,hit,head,helm:g.getObjectByName('capacete'),gun:g.getObjectByName('fuzil'),muzzle};
+}
+// arma do inimigo: um dos modelos 3D de arma longa do jogador (sem AWP e pistolas, que não combinam com as animações de fuzil)
+const EGMDL=['ak','ak12','fuzil','bizon','pmx'];
+function enemyGun(mz){
+  const ok=EGMDL.filter(id=>MDL[id].tpl);if(!mz||!ok.length)return;  // modelos ainda carregando: fica o fuzil procedural
+  const md=MDL[ok[Math.floor(Math.random()*ok.length)]],r=mz.parent;
+  r.children.filter(o=>o!==mz).forEach(o=>r.remove(o));
+  const m=md.tpl.clone();m.traverse(o=>{if(o.isMesh)o.castShadow=true});r.add(m);mz.position.z=md.muzzle;
 }
 // ragdoll do soldado 3D: as mesmas partículas, mas cada osso do esqueleto segue o seu par
 const RB={P:'pelvis',N:'neck_01',H:'Head',shL:'upperarm_l',elL:'lowerarm_l',haL:'hand_l',shR:'upperarm_r',elR:'lowerarm_r',haR:'hand_r',
