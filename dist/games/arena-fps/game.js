@@ -350,6 +350,9 @@ for(const id in WP)if(!MDL[id]&&!WP[id].k)delete WP[id];
 function loadWeapons(){
   if(!THREE.GLTFLoader||location.protocol==='file:')return;
   const L=new THREE.GLTFLoader();
+  L.load('assets/armas/grenade.glb',g=>{const o=g.scene,b=new THREE.Box3().setFromObject(o),s=b.getSize(new THREE.Vector3()),c=b.getCenter(new THREE.Vector3());   // granada: ~14 cm, centrada
+    const k=.14/Math.max(s.x,s.y,s.z);o.scale.setScalar(k);o.position.copy(c).multiplyScalar(-k);o.traverse(m=>{if(m.isMesh){m.castShadow=true;m.material.envMapIntensity=.3}});
+    GTPL=new THREE.Group();GTPL.add(o)},undefined,e=>console.warn('granada 3D',e));
   for(const id in MDL)L.load('assets/armas/'+MDL[id].f+'.glb',g=>{try{prepWeapon(MDL[id],g.scene);if(cw&&cw.id===id)buildGun(cw)}catch(e){console.warn('arma 3D',id,e)}},undefined,e=>console.warn('arma 3D',id,e));
 }
 function prepWeapon(m,obj){
@@ -1168,16 +1171,44 @@ function doReload(){
   reloading=true;rt=RL;RS={a0:ammo,empty:ammo===0,dr:0,in:0,rk:0,sh:0,j:0};clk(260,.04);
 }
 const grens=[],gGeo=new THREE.SphereGeometry(.09,10,8),gMat=new THREE.MeshStandardMaterial({color:0x3d4a2c,roughness:.7});
+let GTPL=null,shk=0;   // modelo da granada (assets/armas/grenade.glb) e tremor da câmera
 function throwGren(){
   if(!alive||paused||gren<=0||grenCD>0)return;
   gren--;grenCD=.8;swing=1;beep(320,.08,'triangle',.04);
   const d=new THREE.Vector3();camera.getWorldDirection(d);
-  const m=new THREE.Mesh(gGeo,gMat);m.castShadow=true;
+  const m=GTPL?GTPL.clone():new THREE.Mesh(gGeo,gMat);m.castShadow=true;
   m.position.copy(camera.position).addScaledVector(d,.6);scene.add(m);
   grens.push({m,v:d.multiplyScalar(15).add(new THREE.Vector3(0,3.5,0)),t:1.6});
 }
+// explosão: clarão → bola de fogo → onda de choque no chão → faíscas e estilhaços → fumaça que sobe e fica → marca queimada
+const xfx=[],xLight=new THREE.PointLight(0xffa040,0,18);scene.add(xLight);   // luz fixa: criar luz nova recompila os shaders
+const RING_T=fxTex(128,(x,n)=>{const g=x.createRadialGradient(n/2,n/2,n*.3,n/2,n/2,n/2);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.7,'rgba(255,255,255,.8)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,n,n)});
+const SCORCH_T=fxTex(128,(x,n)=>{const h=n/2;for(let i=0;i<22;i++){const a=Math.random()*6.28,d=h*Math.random()*.6,r=h*(.15+Math.random()*.3),g=x.createRadialGradient(h+Math.cos(a)*d,h+Math.sin(a)*d,0,h+Math.cos(a)*d,h+Math.sin(a)*d,r);
+  g.addColorStop(0,'rgba(12,10,8,.5)');g.addColorStop(1,'rgba(12,10,8,0)');x.fillStyle=g;x.fillRect(0,0,n,n)}});
+const RING_M=addM(RING_T,0xffb060),SCORCH_M=new THREE.MeshBasicMaterial({map:SCORCH_T,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2});
+// a: aditivo (fogo) ou fumaça; s0→s1 escala; v sobe; t vida
+function xPart(p,a,col,s0,s1,t,op,v){const m=new THREE.Sprite(new THREE.SpriteMaterial({map:a?TX_GLOW:TX_SMOKE,color:new THREE.Color(col).multiplyScalar(a&&PP?2.4:1),transparent:true,opacity:op,depthWrite:false,
+  blending:a?THREE.AdditiveBlending:THREE.NormalBlending,rotation:Math.random()*6.28,toneMapped:!a}));m.position.copy(p);scene.add(m);xfx.push({m,s0,s1,t,max:t,op,v:v||new THREE.Vector3()})}
+function explodeFx(p){
+  const g=new THREE.Vector3(p.x,.02,p.z),R=()=>new THREE.Vector3(Math.random()-.5,Math.random()*.6,Math.random()-.5);
+  xPart(p,1,0xfff2d0,1.5,6,.14,1);                                                    // clarão
+  for(let i=0;i<7;i++)xPart(p.clone().addScaledVector(R(),1.2),1,i%2?0xff7a20:0xffb040,.8,3.2+Math.random()*1.5,.45+Math.random()*.25,.9,R().multiplyScalar(3));   // bola de fogo
+  for(let i=0;i<10;i++)xPart(p.clone().addScaledVector(R(),1.6).setY(.4+Math.random()),0,i%3?0x4a4844:0x2e2c2a,1.2,4.5+Math.random()*2,3+Math.random()*2,.75,R().multiplyScalar(.8).setY(.35+Math.random()*.4));   // fumaça
+  const r=new THREE.Mesh(PLANE,RING_M.clone());r.rotation.x=-Math.PI/2;r.position.copy(g);scene.add(r);xfx.push({m:r,s0:.5,s1:GR*2.2,t:.35,max:.35,op:1,v:new THREE.Vector3(),ring:1});   // onda de choque
+  const sc=new THREE.Mesh(PLANE,SCORCH_M.clone());sc.rotation.x=-Math.PI/2;sc.rotation.z=Math.random()*6.28;sc.position.copy(g);scene.add(sc);xfx.push({m:sc,s0:3.2,s1:3.2,t:14,max:14,op:1,v:new THREE.Vector3(),ring:1,slow:1});   // marca no chão
+  sparks(p,new THREE.Vector3(0,1,0),40,16);
+  xLight.position.copy(p).setY(p.y+.8);xLight.intensity=PP?60:30;
+  shk=Math.max(shk,Math.max(0,1-Math.hypot(P.x-p.x,P.z-p.z)/(GR*3)));
+}
+function updateXfx(dt){
+  xLight.intensity*=Math.exp(-dt*9);
+  for(let i=xfx.length-1;i>=0;i--){const f=xfx[i];f.t-=dt;const k=1-Math.max(0,f.t/f.max),e=1-Math.pow(1-k,3);   // cresce rápido e desacelera
+    const s=f.s0+(f.s1-f.s0)*e;f.ring?f.m.scale.set(s,s,1):f.m.scale.setScalar(s);f.m.position.addScaledVector(f.v,dt);f.v.multiplyScalar(Math.exp(-dt*1.5));
+    f.m.material.opacity=f.op*(f.slow?Math.min(1,f.t/3):(1-k)*(f.m.material.blending===THREE.AdditiveBlending?1:Math.min(1,k*8)));
+    if(f.t<=0){scene.remove(f.m);f.m.material.dispose();xfx.splice(i,1)}}
+}
 function explode(p){
-  boom(p,0xff9a3a,2.4,.5,.9,.6);boom(p,0x555555,1.6,1.2,.5,1.2);
+  explodeFx(p);
   burst(p,24,[spMat,dm[4],dm[3]],9,.12,14,1,null);gunshot(.7);beep(55,.6,'sawtooth',.12);
   let hit=false;
   for(const e of enemies.slice()){
@@ -1217,7 +1248,7 @@ function hsFx(){const b=$('hsb');b.classList.remove('on');void b.offsetWidth;b.c
 function banner(t){const b=$('banner');b.textContent=t;b.classList.add('on');setTimeout(()=>b.classList.remove('on'),1400)}
 function reset(){
   enemies.forEach(e=>scene.remove(e.g));enemies.length=0;
-  shots.forEach(s=>scene.remove(s.m));shots.length=0;[tracers,sparksL,shells,eflashes].forEach(L=>{L.forEach(o=>scene.remove(o.g||o.m));L.length=0});drops.forEach(d=>scene.remove(d.m));drops.length=0;grens.forEach(g=>scene.remove(g.m));grens.length=0;
+  shots.forEach(s=>scene.remove(s.m));shots.length=0;[tracers,sparksL,shells,eflashes].forEach(L=>{L.forEach(o=>scene.remove(o.g||o.m));L.length=0});drops.forEach(d=>scene.remove(d.m));drops.length=0;grens.forEach(g=>scene.remove(g.m));grens.length=0;xfx.forEach(f=>{scene.remove(f.m);f.m.material.dispose()});xfx.length=0;xLight.intensity=shk=0;
   if(!wantCont)startKit();                                          // partida nova (onda 1): volta ao inventário inicial
   hp=100;score=wantCont?contS:0;wave=wantCont?contW:0;wantCont=false;spawning=false;reloading=false;refill();load(eq[1]?1:2);
   pickups.forEach(p=>scene.remove(p.g));pickups.length=0;holes.forEach(h=>scene.remove(h));holes.length=0;dying.forEach(clearRag);dying.length=0;fx.forEach(f=>scene.remove(f.m));fx.length=0;
@@ -1243,7 +1274,8 @@ function update(dt){
   if(reloading){rt-=dt;if(RFZ>=0)rt=Math.max(.001,RL*(1-RFZ));if(rt<=0){reloading=false;const tk=Math.min(MAG-ammo,reserve);ammo+=tk;reserve-=tk}}
   if(firing)shoot();
   camera.position.set(P.x,P.y+1.7+Math.sin(bobT)*.04,P.z);
-  camera.rotation.y=yaw;camera.rotation.x=pitch;
+  shk=Math.max(0,shk-dt*1.6);const sh=shk*shk*.06;   // tremor da explosão
+  camera.rotation.y=yaw+(Math.random()-.5)*sh;camera.rotation.x=pitch+(Math.random()-.5)*sh;camera.rotation.z=(Math.random()-.5)*sh;
   const rp=reloading?1-rt/RL:0,tilt=reloading&&!cw.k?reloadPose(rp):(restPose(),0);RS.j=Math.max(0,RS.j-dt*6);
   gun.position.z=-.5+kick*.06+RS.j*.03;gun.position.y=-.24+VMY+tilt*.06+RS.j*.015+Math.sin(bobT*.5)*.006;gun.position.x=.26-tilt*.12+Math.cos(bobT*.5)*.01;
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
@@ -1411,7 +1443,7 @@ function loop(t){
   requestAnimationFrame(loop);
   const dt=Math.min(.05,(t-last)/1000);last=t;
   if(playing&&!paused&&alive)update(dt);
-  if(!paused){updateFx(dt);updateDust(dt);updateDrops(dt);updateShots(dt)}
+  if(!paused){updateFx(dt);updateDust(dt);updateDrops(dt);updateShots(dt);updateXfx(dt)}
   else if(!playing){
     yaw+=dt*.12;pitch=0;camera.position.set(0,3.2,22);camera.rotation.set(0,yaw,0);
     gun.position.z=-.5;gun.rotation.set(0,0,0);flash.visible=false;mlight.intensity=0;restPose();
