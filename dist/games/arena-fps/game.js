@@ -288,15 +288,15 @@ const KB=(()=>{const s=new THREE.Shape();s.moveTo(0,-.013);s.lineTo(.2,-.013);s.
 // topo em y=top. Cabo e apoio da mão esquerda são frações do comprimento (gF/fF) e da altura (gY/fY).
 // Enquanto o modelo não carrega (ou se falhar), a arma procedural continua valendo.
 const MDL={
-  ak:{f:'ak47_counter_strike_2',len:.74,back:.34,gF:.35,fF:.62,flip:1},
-  ak12:{f:'ak12',len:.74,back:.34,gF:.35,fF:.62,tint:0x26272a,flip:1},
-  bizon:{f:'bizon',len:.62,back:.3,gF:.33,fF:.6,tint:0x2a2b2d,flip:1,drop:/^pp19dc/},
-  pmx:{f:'pmx',len:.52,back:.26,gF:.4,fF:.63,flip:1},
-  fuzil:{f:'gun',len:.78,back:.34,gF:.33,fF:.6},
+  ak:{f:'ak47_counter_strike_2',len:.74,back:.34,gF:.35,fF:.62,flip:1,mag:{z:[-.105,.022],y:-.03}},
+  ak12:{f:'ak12',len:.74,back:.34,gF:.35,fF:.62,tint:0x26272a,flip:1,mag:{z:[-.053,.053],y:-.035}},
+  bizon:{f:'bizon',len:.62,back:.3,gF:.33,fF:.6,tint:0x2a2b2d,flip:1,drop:/^pp19dc/,mag:{n:/^pp19mag/}},
+  pmx:{f:'pmx',len:.52,back:.26,gF:.4,fF:.63,flip:1,mag:{z:[-.125,-.075],y:-.09}},
+  fuzil:{f:'gun',len:.78,back:.34,gF:.33,fF:.6,mag:{z:[-.1,-.005],y:-.045}},
   apx:{f:'apx',len:.2,back:.12,gF:.22,pistol:1,flip:1},
   glock:{f:'glock',len:.19,back:.12,gF:.22,pistol:1,rot:[0,Math.PI/2,0],flip:1},   // modelo vem com o comprimento em x
   deagle:{f:'deagle',len:.27,back:.12,gF:.2,pistol:1,flip:1},
-  awp:{f:'awp',len:.95,back:.36,gF:.3,fF:.55,flip:1},
+  awp:{f:'awp',len:.95,back:.36,gF:.3,fF:.55,flip:1,mag:{z:[-.005,.055],y:-.07}},
   dual:{f:'beretta',len:.2,back:.12,gF:.22,pistol:1,flip:1}
 };
 // só as armas com modelo 3D (e a faca) ficam no jogo
@@ -322,10 +322,43 @@ function prepWeapon(m,obj){
   m.grip=new THREE.Vector3(0,top-h*(m.gY||(m.pistol?.62:.55)),bk-L*m.gF);
   m.fore=m.pistol?new THREE.Vector3(-.026,m.grip.y-.016,m.grip.z+.008):new THREE.Vector3(0,top-h*(m.fY||.35),bk-L*m.fF);
   m.muzzle=bk-L;m.tpl=wrap;
+  makeMag(m,wrap,obj,b);
+}
+// pente separado do modelo, para a recarga tirar e colocar: nos fuzis, os triângulos dentro da caixa m.mag (ou as malhas
+// com o nome m.mag.n) viram o grupo 'pente'; nas pistolas, um pente simples dentro do cabo, que só aparece ao sair por baixo
+function makeMag(m,wrap,obj,b){
+  const pg=new THREE.Group();pg.name='pente';wrap.updateMatrixWorld(true);
+  if(m.pistol){b=new THREE.Box3().setFromObject(obj);const top=b.min.y+.1,o=new THREE.Mesh(BOX,GM.dark);o.scale.set(.02,top-b.min.y-.003,.028);
+    pg.position.set(m.grip.x,top,m.grip.z);o.position.y=-(top-b.min.y)/2;pg.userData.grab=new THREE.Vector3(0,b.min.y-top+.02,0);wrap.add(pg);pg.add(o);return}
+  if(!m.mag)return;
+  const M=new THREE.Matrix4(),v=new THREE.Vector3(),w=new THREE.Vector3(),parts=[],got=[],q=m.mag,bb=new THREE.Box3(),pts=[];
+  obj.traverse(o=>{if(o.isMesh)parts.push(o)});
+  for(const o of parts){
+    if(q.n){if(q.n.test(o.name)){got.push(o);bb.expandByObject(o)}continue}
+    M.copy(o.matrixWorld);const g=o.geometry,P=g.attributes.position,ix=g.index?g.index.array:null,N=ix?ix.length:P.count;
+    const grs=g.groups.length?g.groups:[{start:0,count:N,materialIndex:0}],A=[],B=[],gA=[],gB=[];
+    const inBox=(a,c,d)=>{w.fromBufferAttribute(P,a).add(v.fromBufferAttribute(P,c)).add(v.fromBufferAttribute(P,d)).multiplyScalar(1/3).applyMatrix4(M);
+      const r=w.y<q.y&&w.z>q.z[0]&&w.z<q.z[1];if(r)for(const k of [a,c,d]){v.fromBufferAttribute(P,k).applyMatrix4(M);bb.expandByPoint(v);if(pts.length<6e4)pts.push(v.clone())}return r};
+    for(const gr of grs){const sa=A.length,sb=B.length;
+      for(let i=gr.start;i<gr.start+gr.count;i+=3){const a=ix?ix[i]:i,c=ix?ix[i+1]:i+1,d=ix?ix[i+2]:i+2;(inBox(a,c,d)?B:A).push(a,c,d)}
+      gA.push({start:sa,count:A.length-sa,materialIndex:gr.materialIndex});gB.push({start:sb,count:B.length-sb,materialIndex:gr.materialIndex})}
+    if(!B.length)continue;
+    const mk=(arr,gs)=>{const ng=new THREE.BufferGeometry();for(const k in g.attributes)ng.setAttribute(k,g.attributes[k]);   // atributos compartilhados: só o índice muda
+      ng.setIndex(new THREE.BufferAttribute(P.count>65535?new Uint32Array(arr):new Uint16Array(arr),1));
+      if(g.groups.length)gs.forEach(x=>{if(x.count)ng.addGroup(x.start,x.count,x.materialIndex)});return ng};
+    o.geometry=mk(A,gA);const c=new THREE.Mesh(mk(B,gB),o.material);c.castShadow=true;
+    c.position.copy(o.position);c.quaternion.copy(o.quaternion);c.scale.copy(o.scale);o.parent.add(c);got.push(c);
+  }
+  if(!got.length)return;
+  bb.applyMatrix4(new THREE.Matrix4().copy(wrap.matrixWorld).invert());   // caixa só dos triângulos do pente (a geometria é compartilhada)
+  pg.position.set((bb.min.x+bb.max.x)/2,bb.max.y,(bb.min.z+bb.max.z)/2);wrap.add(pg);pg.updateMatrixWorld(true);   // origem do pente: topo, no centro
+  const lo=pts.filter(p=>p.y<bb.min.y+(bb.max.y-bb.min.y)*.45),gc=new THREE.Vector3();lo.forEach(p=>gc.add(p));   // onde a mão pega: centro da metade de baixo
+  pg.userData.grab=lo.length?gc.multiplyScalar(1/lo.length).sub(pg.position):new THREE.Vector3(0,-.1,0);
+  got.forEach(c=>pg.attach(c));
 }
 function makeGun(w,par,proc){
   const md=!proc&&MDL[w.id];
-  if(md&&md.tpl){par.add(md.tpl.clone());return {mag:new THREE.Object3D(),muzzle:md.muzzle,grip:md.grip.clone(),gRot:md.pistol?.28:.3,fore:md.fore.clone(),fRot:md.pistol?.28:-1.45}}
+  if(md&&md.tpl){const t=md.tpl.clone();par.add(t);return {mag:t.getObjectByName('pente')||new THREE.Object3D(),muzzle:md.muzzle,grip:md.grip.clone(),gRot:md.pistol?.28:.3,fore:md.fore.clone(),fRot:md.pistol?.28:-1.45}}
   const id=w.id,g=w.g,L=g[0],B=g[1],M=g[2],sup=w.q<.2,shot=w.n>1;
   const bx=(sx,sy,sz,m,x,y,z,rx)=>{const o=new THREE.Mesh(BOX,m);o.scale.set(sx,sy,sz);o.position.set(x,y,z);o.rotation.x=rx||0;par.add(o);return o};
   const cy=(r,len,m,x,y,z)=>{const o=new THREE.Mesh(CYL,m);o.scale.set(r,r,len);o.position.set(x,y,z);par.add(o);return o};
@@ -403,7 +436,7 @@ const drops=[];
 function dropMag(m){                                                 // cópia do pente vazio cai no mundo
   const c=m.clone();m.getWorldPosition(c.position);m.getWorldQuaternion(c.quaternion);m.getWorldScale(c.scale);
   c.traverse(o=>{if(o.isMesh)o.castShadow=true});scene.add(c);
-  drops.push({m:c,v:new THREE.Vector3(.5,-.6,.3).applyQuaternion(camera.quaternion),w:new THREE.Vector3(4+Math.random()*3,0,3+Math.random()*3),t:0});
+  drops.push({m:c,v:new THREE.Vector3(.5,-.6,.3).applyQuaternion(camera.quaternion),w:new THREE.Vector3(4+Math.random()*3,0,3+Math.random()*3),t:0,rx:0,rz:Math.PI/2,fy:.016});   // pousa deitado de lado
   if(drops.length>10){scene.remove(drops[0].m);drops.shift()}
 }
 function updateDrops(dt){
@@ -412,7 +445,7 @@ function updateDrops(dt){
     if(!d.rest){
       d.v.y-=14*dt;p.addScaledVector(d.v,dt);d.m.rotation.x+=d.w.x*dt;d.m.rotation.z+=d.w.z*dt;
       const fy=d.fy||.04;
-      if(p.y<fy){p.y=fy;if(Math.abs(d.v.y)<1.3){d.rest=true;d.m.rotation.set(d.rx!==undefined?d.rx:Math.PI/2,d.m.rotation.y,0);clk(240,.025)}
+      if(p.y<fy){p.y=fy;if(Math.abs(d.v.y)<1.3){d.rest=true;d.m.rotation.set(d.rx!==undefined?d.rx:Math.PI/2,d.m.rotation.y,d.rz||0);clk(240,.025)}
         else{d.v.y=-d.v.y*.3;d.v.x*=.5;d.v.z*=.5;d.w.multiplyScalar(.5);clk(330,.035)}}
     }
     if(d.t>12){scene.remove(d.m);drops.splice(i,1)}
@@ -424,7 +457,7 @@ function restPose(){
   mags.forEach(m=>{m.visible=true;m.position.copy(m.userData.rest)});
 }
 function reloadPose(p){                                              // devolve a inclinação da arma (0..1)
-  const base=true,tilt=sm(0,.14,p)*(1-sm(.86,1,p)),MR=mags.length?mags[0].userData.rest:null;
+  RS.p=p;const base=true,tilt=sm(0,.14,p)*(1-sm(.86,1,p)),MR=mags.length?mags[0].userData.rest:null;
   let hx=HL0.x,hy=HL0.y,hz=HL0.z,show=base;
   if(cw.n>1){                                                        // espingarda: cartucho por cartucho
     const k=sm(.12,.2,p)*(1-sm(.8,.88,p)),n=Math.max(1,Math.min(MAG-RS.a0,6)),c=Math.min(n-.001,Math.max(0,(p-.2)/.6*n)),ph=c%1;
@@ -434,11 +467,11 @@ function reloadPose(p){                                              // devolve 
   }else if(MR){
     const out=sm(.14,.26,p),down=sm(.22,.4,p)*(1-sm(.4,.58,p)),ins=sm(.58,.68,p),back=sm(.72,.86,p),go=sm(.1,.2,p)*(1-back);
     if(p>=.26&&!RS.dr){RS.dr=1;mags.forEach(dropMag);clk(380,.05)}
-    const sx=base?HL0.x:MR.x,sy=base?HL0.y:MR.y-.5,sz=base?HL0.z:MR.z;  // pistola: a mão vem de baixo da tela
-    hx=LERP(sx,MR.x,go);hy=LERP(sy,MR.y-.13+ins*.1,go)-down*.38;hz=LERP(sz,MR.z+.01,go);
     show=base||(p>.08&&p<.9);
     const dy=p<.26?-out*.24:-(.24+down*.38)*(1-ins);
     mags.forEach(m=>{m.visible=p<.26||p>=.4;m.position.set(m.userData.rest.x,m.userData.rest.y+dy,m.userData.rest.z)});
+    const m0=mags[0],G=m0.userData.grab||new THREE.Vector3(0,-.13,.01);            // a mão tira, carrega e encaixa o pente
+    hx=LERP(HL0.x,m0.position.x+G.x,go);hy=LERP(HL0.y,m0.position.y+G.y,go);hz=LERP(HL0.z,m0.position.z+G.z,go);
     if(p>=.68&&!RS.in){RS.in=1;clk(620,.06);RS.j=.8}
     if(RS.empty&&p>=.76&&!RS.rk){RS.rk=1;clk(470,.06);setTimeout(()=>clk(820,.05),80);RS.j=1}
   }
@@ -742,10 +775,12 @@ const GRIP={
      L:{o:[-.016,-.045,-.04],f:[.35,-.25,-.9],t:[.15,.35,-.95],c:[1.2,1.3,.9],th:[.1,.2,.1]}},
   r:{R:{o:[.012,-.015,-.028],f:[0,-.3,-.95],t:[-.35,.55,-.75],c:[1.35,1.45,1],th:[.2,.3,.2],tb:-.8},
      L:{o:[.045,-.045,-.06],f:[.7,.15,-.7],t:[-.2,.4,-.9],c:[1.3,.6,.3],th:[.1,.2,.1]}},   // palma sob o guarda-mão, dedos sobem pelo lado direito, polegar no esquerdo
-  k:{R:{o:[.012,-.01,-.02],f:[0,-.15,-1],t:[-.3,.6,-.7],c:[1.4,1.5,1.1],th:[.3,.4,.3]}}
+  k:{R:{o:[.012,-.01,-.02],f:[0,-.15,-1],t:[-.3,.6,-.7],c:[1.4,1.5,1.1],th:[.3,.4,.3]}},
+  M:{o:[-.02,.02,-.02],f:[.15,.35,-.92],t:[0,1,0],c:[1.2,1,.6],th:[.2,.3,.2]}   // recarga: mão esquerda segurando o pente
 };
 const _ev=new THREE.Euler();
 function gripOf(s){
+  if(s==='L'&&reloading&&mags.length&&cw.n===1&&RS.p>.12&&RS.p<.8)return GRIP.M;
   if(cw.x2&&s==='L'){const r=GRIP.p.R;return{o:[-r.o[0],r.o[1],r.o[2]],f:[-r.f[0],r.f[1],r.f[2]],t:[-r.t[0],r.t[1],r.t[2]],c:r.c,th:r.th,tb:r.tb}}   // duas pistolas: esquerda espelha a direita
   return GRIP[cw.k?'k':cw.cat==='p'?'p':'r'][s];
 }
