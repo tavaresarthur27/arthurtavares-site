@@ -741,7 +741,7 @@ const GRIP={
   p:{R:{o:[.012,-.015,-.028],f:[0,-.3,-.95],t:[-.35,.55,-.75],c:[1.35,1.45,1],th:[.2,.3,.2],tb:-.8},
      L:{o:[-.016,-.045,-.04],f:[.35,-.25,-.9],t:[.15,.35,-.95],c:[1.2,1.3,.9],th:[.1,.2,.1]}},
   r:{R:{o:[.012,-.015,-.028],f:[0,-.3,-.95],t:[-.35,.55,-.75],c:[1.35,1.45,1],th:[.2,.3,.2],tb:-.8},
-     L:{o:[-.008,-.04,0],f:[.55,.05,-.83],t:[-.3,.6,-.75],c:[1,1.15,.8],th:[.1,.2,.1]}},
+     L:{o:[.045,-.045,-.06],f:[.7,.15,-.7],t:[-.2,.4,-.9],c:[1.3,.6,.3],th:[.1,.2,.1]}},   // palma sob o guarda-mão, dedos sobem pelo lado direito, polegar no esquerdo
   k:{R:{o:[.012,-.01,-.02],f:[0,-.15,-1],t:[-.3,.6,-.7],c:[1.4,1.5,1.1],th:[.3,.4,.3]}}
 };
 const _ev=new THREE.Euler();
@@ -750,7 +750,10 @@ function gripOf(s){
   return GRIP[cw.k?'k':cw.cat==='p'?'p':'r'][s];
 }
 function curlHand(s,g){                                               // fecha os dedos em volta do cabo
-  const B=VA.B;['Index','Middle','Ring','Pinky'].forEach((f,k)=>{for(let i=1;i<=3;i++){const b=B[s+'Hand'+f+i];if(b)b.quaternion.setFromEuler(_ev.set(g.c[i-1]*(1-k*.04),0,0))}});
+  const B=VA.B,ix=B[s+'HandIndex1'],meta=ix&&ix.position.y<.6*B[s+'HandMiddle1'].position.y;   // meta: rig em que Index1 é o osso da palma (soldado russo, mão direita)
+  if(meta&&!ix.userData.q0)ix.userData.q0=ix.quaternion.clone();
+  ['Index','Middle','Ring','Pinky'].forEach((f,k)=>{const sh=f==='Index'&&meta?1:0;for(let i=1;i<=3;i++){const b=B[s+'Hand'+f+i];if(!b)continue;
+    if(i<=sh){b.quaternion.copy(b.userData.q0);continue}b.quaternion.setFromEuler(_ev.set(g.c[i-1-sh]*(1-k*.04),0,0))}});
   const t1=B[s+'HandThumb1'];if(!t1.userData.q0)t1.userData.q0=t1.quaternion.clone();
   t1.quaternion.copy(t1.userData.q0).multiply(_iq.setFromEuler(_ev.set(g.tb||0,0,0)));   // tb: fecha o polegar junto à arma
   for(let i=2;i<=3;i++){const b=B[s+'HandThumb'+i];if(b)b.quaternion.setFromEuler(_ev.set(g.th[i-1],0,0))}
