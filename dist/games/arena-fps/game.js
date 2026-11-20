@@ -928,7 +928,7 @@ function spawnWave(){
     while(tries<20&&(Math.hypot(x-P.x,z-P.z)<16));
     const s=SOLD?makeSoldier3D():makeSoldier();
     s.g.position.set(x,0,z);s.g.rotation.order='YXZ';scene.add(s.g);
-    const e={g:s.g,j:s.j,mx:s.mx,A:s.A,bones:s.bones,muzzle:s.muzzle,helm:s.helm,gun:s.gun,x,z,hp:(3+Math.floor(wave/2))*10,speed:2.2+Math.random()*.8+Math.min(wave*.12,1.6),fire:1+Math.random()*2.5,ph:Math.random()*6,hitT:0,meshes:[]};
+    const e={g:s.g,j:s.j,mx:s.mx,A:s.A,bones:s.bones,muzzle:s.muzzle,helm:s.helm,gun:s.gun,x,z,ammo:5+Math.floor(Math.random()*4),rl:0,mag:s.gun&&s.gun.getObjectByName('pente'),hp:(3+Math.floor(wave/2))*10,speed:2.2+Math.random()*.8+Math.min(wave*.12,1.6),fire:1+Math.random()*2.5,ph:Math.random()*6,hitT:0,meshes:[]};
     if(s.hit)s.hit.forEach(o=>{o.userData={owner:e,head:o===s.head};e.meshes.push(o)});   // 3D: caixas de acerto invisíveis
     else s.g.traverse(o=>{if(o.isMesh&&!isIn(o,s.gun)){o.userData={owner:e,head:isIn(o,s.head)};e.meshes.push(o)}});
     enemies.push(e);
@@ -936,6 +936,27 @@ function spawnWave(){
 }
 function isIn(o,p){for(let q=o;q;q=q.parent)if(q===p)return true;return false}
 const pGeo=new THREE.BoxGeometry(.05,.05,.7),pMat=new THREE.MeshBasicMaterial({color:0xffd98a});
+// recarga do inimigo (3D): inclina a arma, o pente cai no chão, a mão esquerda busca outro e encaixa (IK no braço)
+const ERL=2.6,_eq=new THREE.Quaternion(),_ex=new THREE.Vector3(1,0,0),_ez=new THREE.Vector3(0,0,1);
+function enemyReload(e){
+  const g=e.gun;if(!g)return;if(!g.userData.q0)g.userData.q0=g.quaternion.clone();
+  const p=e.rl>0?1-e.rl/ERL:1,tilt=sm(0,.12,p)*(1-sm(.85,1,p));
+  g.quaternion.copy(g.userData.q0).multiply(_eq.setFromAxisAngle(_ez,tilt*.6));   // gira a arma de lado
+  const m=e.mag;if(!m)return;if(!m.userData.r0)m.userData.r0=m.position.clone();
+  const out=sm(.12,.26,p),ins=sm(.55,.75,p),dy=p<.28?-out*.22:-.22*(1-ins);
+  m.position.copy(m.userData.r0);m.position.y+=dy;m.visible=p<.28||p>=.5;
+  if(e.rl>0&&p>=.28&&!e.dr){e.dr=1;const c=m.clone();m.getWorldPosition(c.position);m.getWorldQuaternion(c.quaternion);m.getWorldScale(c.scale);scene.add(c);
+    drops.push({m:c,v:new THREE.Vector3((Math.random()-.5)*.6,-.4,(Math.random()-.5)*.6),w:new THREE.Vector3(3,0,2),t:0,rx:0,rz:Math.PI/2,fy:.016});if(drops.length>14){scene.remove(drops[0].m);drops.shift()}}
+  const k=sm(.08,.2,p)*(1-sm(.75,.9,p));if(k<=0||!e.bones)return;
+  const R=SOLD.RB,B=e.bones,up=B[R.shL],lo=B[R.elL],ha=B[R.haL];if(!up||!lo||!ha)return;
+  const G=m.userData.grab||{x:0,y:-.1,z:0},want=(m.updateWorldMatrix(true,false),m.localToWorld(new THREE.Vector3(G.x,G.y,G.z))),down=sm(.28,.4,p)*(1-sm(.42,.55,p));
+  want.y-=down*.35;                                                  // entre tirar e pôr: a mão desce até o colete
+  const hp=ha.getWorldPosition(new THREE.Vector3()),tgt=hp.clone().lerp(want,k);
+  const a=up.getWorldPosition(new THREE.Vector3()),pole=a.clone().add(new THREE.Vector3(0,-1,0)).addScaledVector(new THREE.Vector3(Math.cos(e.g.rotation.y),0,-Math.sin(e.g.rotation.y)),.5);
+  const b=lo.getWorldPosition(new THREE.Vector3()),L1=a.distanceTo(b),L2=b.distanceTo(hp),dir=tgt.clone().sub(a),d=Math.min(dir.length(),L1+L2-1e-4);dir.normalize();
+  const x=(L1*L1-L2*L2+d*d)/(2*d),h=Math.sqrt(Math.max(0,L1*L1-x*x)),n=pole.sub(a);n.addScaledVector(dir,-n.dot(dir)).normalize();
+  aimBone(up,b,a.clone().addScaledVector(dir,x).addScaledVector(n,h));aimBone(lo,ha.getWorldPosition(new THREE.Vector3()),a.clone().addScaledVector(dir,d));
+}
 function enemyShoot(e){
   const m=new THREE.Mesh(pGeo,pMat);
   const ry=e.g.rotation.y,cs=Math.cos(ry),sn=Math.sin(ry);let mx=e.x+.14*cs+.98*sn,my=1.39,mz=e.z-.14*sn+.98*cs;
@@ -982,6 +1003,7 @@ function ragdoll(e,dir,pt,force){
   for(let i=0;i<RIGID.length;i++)for(let k=i+1;k<RIGID.length;k++)link(RIGID[i],RIGID[k]);
   LINKS.forEach(l=>link(l[0],l[1]));MINL.forEach(l=>link(l[0],l[1],l[2]));
   for(const b of (e.bones?SOLD.RBONES:BONES)){const o=e.bones?e.bones[b[0]]:j[b[0]];d.bones.push({o,A:b[1],B:b[2],s:b[3],bone:!!e.bones,off:rFrame(d,b[1],b[2],b[3],new THREE.Matrix4()).invert().multiply(o.matrixWorld)})}
+  if(e.mag&&e.mag.userData.r0){e.mag.position.copy(e.mag.userData.r0);e.mag.visible=true}   // morreu recarregando: a arma cai com o pente
   if(e.gun){scene.attach(e.gun);drops.push({m:e.gun,v:dir.clone().multiplyScalar(1.6).add(new THREE.Vector3(0,1.2,0)),w:new THREE.Vector3(2,0,3),t:0,fy:.05,rx:0})} // o fuzil cai solto
   if(e.bones)d.root=e.g;                                             // 3D: os ossos ficam no esqueleto e seguem as partículas
   else{d.bones.forEach(b=>scene.attach(b.o));scene.remove(e.g)}   // procedural: cada parte vira um objeto solto na cena
@@ -1217,9 +1239,9 @@ function update(dt){
       A.walk.setEffectiveWeight(m*(1-c)*(1-b));A.idle.setEffectiveWeight((1-k)*(1-(e.ws||0)));   // pesos das pernas somam 1
       if(A.back)A.back.setEffectiveWeight(m*(1-c)*b);if(A.crouch)A.crouch.setEffectiveWeight(m*c);
       A.walk.timeScale=Math.max(.5,sp/3.2);
-      e.fire-=dt;if(e.fire<=0&&d<36){enemyShoot(e);e.fire=1.4+Math.random()*2}
+      if(e.rl>0)e.rl-=dt;else{e.fire-=dt;if(e.fire<=0&&d<36){enemyShoot(e);e.fire=1.4+Math.random()*2;if(--e.ammo<=0){e.rl=ERL;e.ammo=5+Math.floor(Math.random()*4);e.dr=0}}}
       if(e.hitT>0){if(A.hit&&!e.hitA)A.hit.reset().play();e.hitA=1;e.hitT-=dt;if(!A.hit)e.g.rotation.x=-e.hitT*.6}else{e.hitA=0;e.g.rotation.x=0}   // reação ao tiro
-      e.mx.update(dt);
+      e.mx.update(dt);enemyReload(e);
       continue;
     }
     const sw=Math.sin(e.ph*7),j=e.j;j.hipL.rotation.x=sw*.55;j.hipR.rotation.x=-sw*.55;
