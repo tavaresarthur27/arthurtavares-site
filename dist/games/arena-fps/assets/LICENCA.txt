@@ -1,0 +1,20 @@
+Modelo e animações: Quaternius (https://quaternius.com)
+- Universal Base Characters (Superhero_Male_FullBody), sem texturas
+- Universal Animation Library (UAL1_Standard): Idle_Loop, Walk_Loop, Jog_Fwd_Loop, Pistol_Aim_Neutral, Pistol_Shoot, Hit_Chest
+Licença: CC0 1.0 Universal (domínio público) - https://creativecommons.org/publicdomain/zero/1.0/
+
+Soldado tático (assets/tatico.glb):
+- Modelo "Character (Type Tactical Man 1)" por LokitoBlu (Sketchfab, https://sketchfab.com/3d-models/character-type-tactical-man-1-7c3df60ec3cd4477a3dd365e0cf2acc2)
+  Licença: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) - crédito obrigatório. Alterações: sem texturas, cores e capacete do jogo.
+- Esqueleto e animações (Rifle Aiming Idle, Rifle Run, Firing Rifle, Hit Reaction, Run Backward, Rifle Crouch Walk): Mixamo (Adobe), uso embutido no jogo.
+
+Armas (assets/armas/): ak12, bizon (PP-19), pmx, gun (Fuzil tático), apx, beretta.
+- Baixadas pelo usuário; origem e licença NÃO registradas. Confirmar antes de publicar o jogo.
+- glock.glb: "Low Poly G18 Pistol Game Asset" por akhalas (https://sketchfab.com/3d-models/low-poly-g18-pistol-game-asset-64a5a3d33f0e4af9b3d5821d2f0f533e) - CC BY 4.0, crédito obrigatório.
+- deagle.glb: "Desert Eagle Gun" por attix84work (https://sketchfab.com/3d-models/desert-eagle-gun-1605b6c38826433fb3fe564e1d043199) - CC BY 4.0, crédito obrigatório.
+- ak47_counter_strike_2.glb (AK-47): "AK47 Counter Strike 2" por blazitt (https://sketchfab.com/3d-models/ak47-counter-strike-2-f61d46a3eee048999306017d8dd476b6) - CC BY 4.0, crédito obrigatório. Imita a AK do CS2 (da Valve); confirme se o autor podia licenciar antes de publicar.
+- awp.glb: "AWP" por altncaglar (https://sketchfab.com/3d-models/awp-4e5bdb0ec54144c68f0e6e47bf622483) - CC BY 4.0, crédito obrigatório.
+
+Soldado russo (assets/russo.glb + assets/russo/*.png) - inimigo padrão no desktop:
+- Personagem "Russian_Soldier1" (FBX com esqueleto Mixamo, trazido pelo usuário; origem e licença NÃO registradas - parece personagem da Mixamo/Adobe: uso embutido no jogo permitido, redistribuição dos arquivos brutos não). Confirmar antes de publicar.
+- Animações: as mesmas de fuzil da Mixamo do soldado tático. Texturas extraídas do próprio FBX (Diffuse e Normal, 2048 px).

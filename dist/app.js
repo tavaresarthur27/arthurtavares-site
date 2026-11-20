@@ -16,7 +16,7 @@ function renderGames(filter = 'all') {
     visual.href = game.href;
     visual.setAttribute('aria-label', `Jogar ${game.title}`);
     const img = element('img');
-    img.src = game.image; img.alt = `Prévia da mesa de ${game.title}`; img.loading = 'lazy';
+    img.src = game.image; img.alt = `Prévia de ${game.title}`; img.loading = 'lazy';
     visual.append(img, element('span', 'game-badge', 'JOGUE NO NAVEGADOR'), element('span', 'game-art-title', game.title), element('span', 'card-play', '↗'));
     const info = element('div', 'game-info');
     info.append(element('p', 'eyebrow', game.label), element('h3', '', game.title), element('p', 'game-description', game.description));

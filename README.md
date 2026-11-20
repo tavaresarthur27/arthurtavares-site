@@ -16,13 +16,13 @@ O canal informado não apresentava vídeos públicos na consulta inicial. Não h
 
 ## Jogos incluídos
 
-Orbit Pinball e Cosmic Cadet foram copiados dos projetos locais em 15/11/2026. Os originais foram preservados. As cópias incluem um link de retorno ao portfólio. Mudanças futuras nos originais precisam ser copiadas para este site.
+Orbit Pinball e Cosmic Cadet foram copiados dos projetos locais em 15/11/2026; Arena FPS (de `arena-fps/arena-fps` no workspace) em 20/11/2026, só com os arquivos que o jogo carrega (sem `assets/origem` e `assets/ferramentas`), cerca de 160 MB. Os originais foram preservados. As cópias incluem um link de retorno ao portfólio. Mudanças futuras nos originais precisam ser copiadas para este site.
 
 Cosmic Cadet usa Three.js pela CDN e precisa de WebGL. As fontes vêm do Google Fonts, com fontes locais de reserva. Recordes e partidas salvas pertencem ao navegador e endereço em que o jogo foi aberto.
 
 ## Verificação
 
-Com Google Chrome instalado: `npm.cmd install`, inicie o servidor local e execute `npm.cmd test`. O teste cobre filtros, detalhes, foco após fechar o diálogo, menu móvel, larguras de 360 a 1440 px, links e início de ambos os jogos. Capturas de verificação ficam em `artifacts/`.
+Com Google Chrome instalado: `npm.cmd install`, inicie o servidor local e execute `npm.cmd test`. O teste cobre filtros, detalhes, foco após fechar o diálogo, menu móvel, larguras de 360 a 1440 px, links e início dos três jogos. Capturas de verificação ficam em `artifacts/`.
 
 ## Hospedagem
 
