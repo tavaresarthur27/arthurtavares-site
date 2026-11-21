@@ -68,11 +68,14 @@ if(PP){
   fxaa=new THREE.ShaderPass(THREE.FXAAShader);composer.addPass(fxaa);
 }
 
+let VMP=0;   // 0 em paisagem, até 1 em retrato estreito
 function onResize(){
   const w=innerWidth,h=innerHeight;
   renderer.setSize(w,h);
   camera.aspect=w/h;
-  camera.fov=camera.aspect<1?88:75;
+  // retrato: mantém o campo de visão horizontal (senão a tela vira um túnel com metade de céu); arma desce e entra para o centro
+  camera.fov=camera.aspect<1?Math.min(110,2*Math.atan(Math.tan(37.5*Math.PI/180)/camera.aspect)*180/Math.PI):75;
+  VMP=camera.aspect<1?Math.min(1,(1-camera.aspect)*1.6):0;
   camera.updateProjectionMatrix();
   if(composer){composer.setSize(w,h);const pr=renderer.getPixelRatio();fxaa.material.uniforms.resolution.value.set(1/(w*pr),1/(h*pr))}
 }
@@ -1317,7 +1320,7 @@ function update(dt){
   shk=Math.max(0,shk-dt*1.6);const sh=shk*shk*.06;   // tremor da explosão
   camera.rotation.y=yaw+(Math.random()-.5)*sh;camera.rotation.x=pitch+(Math.random()-.5)*sh;camera.rotation.z=(Math.random()-.5)*sh;
   const rp=reloading?1-rt/RL:0,tilt=reloading&&!cw.k?reloadPose(rp):(restPose(),0);RS.j=Math.max(0,RS.j-dt*6);
-  gun.position.z=-.5+kick*.06+RS.j*.03;gun.position.y=-.24+VMY+tilt*.06+RS.j*.015+Math.sin(bobT*.5)*.006;gun.position.x=.26-tilt*.12+Math.cos(bobT*.5)*.01;
+  gun.position.z=-.5+kick*.06+RS.j*.03;gun.position.y=-.24-VMP*.12+VMY+tilt*.06+RS.j*.015+Math.sin(bobT*.5)*.006;gun.position.x=.26-VMP*.1-tilt*.12+Math.cos(bobT*.5)*.01;
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
   if(VA)viewArms();
   flash.visible=flashT>0;mlight.intensity=flashT>0?3:0;
@@ -1419,6 +1422,9 @@ document.addEventListener('pointerlockchange',()=>{
   if(document.pointerLockElement){lockedOnce=true}
   else if(lockedOnce&&playing&&alive&&!paused){lockedOnce=false;paused=true;firing=false;show('Pausado','O jogo está em pausa.','Continuar',['shopb','saveb','menub'])}
 });
+
+// celular em retrato estreito: pausa (o aviso "gire o celular" é só CSS, #rot)
+addEventListener('resize',()=>{if(isTouch&&innerWidth/innerHeight<.7&&playing&&alive&&!paused){paused=true;firing=false;show('Pausado','Gire o celular para jogar.','Continuar',['shopb','saveb','menub'])}});
 
 // ---------- entrada: toque ----------
 const jv={x:0,y:0};let joy=null,look=null;
