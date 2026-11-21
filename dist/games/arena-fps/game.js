@@ -364,7 +364,7 @@ let MAG=15,RL=1.1;
 const P={x:0,y:0,z:22,vy:0};
 let yaw=0,pitch=0,hp=100,ammo=MAG,reserve=45,score=0,wave=0,wt=0,spawning=false,moveAmt=0,stepT=0;
 let armor=0,gren=0,grenCD=0;const GMAX=3,GR=6;
-let swing=0,cur=2,money=800,bestW=0,contW=0,contS=0,wantCont=false,cw=null,own={glock:1,knife:1},st={},eq={1:null,2:'glock',3:'knife'};
+let swing=0,prevSlot=2,gHold=-1,cur=2,money=800,bestW=0,contW=0,contS=0,wantCont=false,cw=null,own={glock:1,knife:1},st={},eq={1:null,2:'glock',3:'knife'};
 // ---------- armas ----------
 const WP={};
 [
@@ -419,6 +419,7 @@ const MDL={
 };
 // só as armas com modelo 3D (e a faca) ficam no jogo
 for(const id in WP)if(!MDL[id]&&!WP[id].k)delete WP[id];
+WP.gren={id:'gren',name:'Granada',cat:'k',slot:4,price:0,dmg:0,cd:.5,mag:0,res:0,rl:1,sp:0,auto:0,n:1,g:[0,0,0,0,0,0],q:.4,c:0,x2:0,k:1,gr:1,rc:0};   // granada na mão (tecla 4); não fica no inventário nem na loja
 function loadWeapons(){
   if(!THREE.GLTFLoader||location.protocol==='file:')return;
   const L=new THREE.GLTFLoader();
@@ -531,6 +532,10 @@ function makeGun(w,par,proc){
 function buildGun(w){
   while(wm.children.length)wm.remove(wm.children[0]);
   hL.visible=fL.visible=!w.k;
+  if(w.gr){
+    const o=GTPL?GTPL.clone():new THREE.Mesh(gGeo,gMat);o.scale.multiplyScalar(GTPL?.75:.6);o.position.set(0,.012,.035);wm.add(o);
+    hR.position.set(0,-.004,.052);hR.rotation.set(-1.5,0,0);VMY=.11;arms();mag=new THREE.Object3D();mags=[];return;   // VMY sobe a mão para a granada aparecer inteira
+  }
   if(w.k){
     const b=new THREE.Mesh(KB,GM.steel);b.position.set(0,0,-.02);wm.add(b);
     const h=new THREE.Mesh(CYL,GM.poly);h.scale.set(.016,.019,.12);h.position.set(0,-.002,.05);wm.add(h);
@@ -602,9 +607,10 @@ function reloadPose(p){                                              // devolve 
   return tilt;
 }
 function stash(){const id=eq[cur];if(id&&st[id]){st[id].a=ammo;st[id].r=reserve}}
-function load(s){cur=s;const id=eq[s],w=WP[id],q=st[id];cw=w;ammo=q.a;reserve=q.r;MAG=w.mag;RL=w.rl;reloading=false;cool=.3;firing=false;buildGun(w)}
-function equip(s){if(!eq[s]){banner('Sem arma primária: abra a loja (B)');return}stash();load(s)}
-function cycle(d){d=d===-1?-1:1;for(let i=1;i<=3;i++){const s=(cur-1+i*d+9)%3+1;if(eq[s]){equip(s);return}}}   // d=-1 volta (scroll para cima)
+function load(s){cur=s;const id=s===4?'gren':eq[s],w=WP[id],q=st[id]||{a:0,r:0};gHold=-1;cw=w;ammo=q.a;reserve=q.r;MAG=w.mag;RL=w.rl;reloading=false;cool=.3;firing=false;buildGun(w)}
+const hasSlot=s=>s===4?gren>0:!!eq[s];
+function equip(s){if(s===4&&gren<=0){banner('Sem granadas: compre na loja (B)');return}if(!eq[s]&&s!==4){banner('Sem arma primária: abra a loja (B)');return}if(cur!==4)prevSlot=cur;stash();load(s)}
+function cycle(d){d=d===-1?-1:1;for(let i=1;i<=4;i++){const s=(cur-1+i*d+12)%4+1;if(hasSlot(s)){equip(s);return}}}   // d=-1 volta (scroll para cima)
 function refill(){for(const id in own)st[id]={a:WP[id].mag,r:WP[id].res}}
 function resup(){stash();for(const id in own){const w=WP[id];if(w.mag)st[id].r=Math.min(w.res,st[id].r+w.mag)}const q=st[eq[cur]];ammo=q.a;reserve=q.r}
 function save(){stash();try{localStorage.setItem('arenafps_v1',JSON.stringify({money,own,eq,st,bestW,contW,contS,armor,gren}))}catch(e){}}
@@ -660,7 +666,7 @@ function iconC(fn){const c=document.createElement('canvas');c.width=120;c.height
 const ITEMS=[
   {name:'Colete',price:650,full:()=>armor>=100,info:()=>'Proteção '+Math.ceil(armor)+'/100 · absorve metade do dano',buy:()=>{armor=100},
    icon:()=>iconC(x=>{x.beginPath();x.moveTo(44,6);x.lineTo(52,6);x.lineTo(60,12);x.lineTo(68,6);x.lineTo(76,6);x.lineTo(80,14);x.lineTo(78,40);x.lineTo(42,40);x.lineTo(40,14);x.fill();x.fillStyle='#8a96a6';x.fillRect(46,22,28,4)})},
-  {name:'Granada',price:300,full:()=>gren>=GMAX,info:()=>'Dano até 110 · '+gren+'/'+GMAX+' · tecla G',buy:()=>{gren++},
+  {name:'Granada',price:300,full:()=>gren>=GMAX,info:()=>'Dano até 110 · '+gren+'/'+GMAX+' · tecla 4: segure o clique e solte',buy:()=>{gren++},
    icon:()=>iconC(x=>{x.beginPath();x.arc(60,26,13,0,6.283);x.fill();x.fillRect(55,8,10,6);x.fillRect(64,6,10,3);x.fillStyle='#8a96a6';x.fillRect(48,24,24,2)})}
 ];
 function buyItem(it){
@@ -1203,6 +1209,7 @@ function kill(e,hs,dir,pt,force){                                  // dir/pt/for
 // ---------- jogador ----------
 function shoot(){
   if(!alive||paused||reloading||cool>0)return;
+  if(cw.gr)return;
   if(cw.k){stab();return}
   if(ammo<=0){if(reserve>0)doReload();else{cool=.3;beep(90,.08,'square',.04)}return}
   ammo--;cool=cw.cd;kick=1;flashT=.07;gunshot(cw.q);if(!cw.auto)firing=false;
@@ -1244,13 +1251,19 @@ function doReload(){
 }
 const grens=[],gGeo=new THREE.SphereGeometry(.09,10,8),gMat=new THREE.MeshStandardMaterial({color:0x3d4a2c,roughness:.7});
 let GTPL=null,shk=0;   // modelo da granada (assets/armas/grenade.glb) e tremor da câmera
-function throwGren(){
-  if(!alive||paused||gren<=0||grenCD>0)return;
+// granada na mão (slot 4): segurar o botão puxa o pino (após GARM s) e carrega a força até GFULL s; soltar lança.
+// Soltar antes de puxar o pino cancela. Sem granadas, volta para a arma anterior.
+const GARM=.35,GFULL=1.2;
+function grenDown(){if(cw&&cw.gr&&alive&&!paused&&gren>0&&grenCD<=0){gHold=0;beep(520,.04,'triangle',.03)}}
+function grenUp(){if(gHold<0)return;const t=gHold;gHold=-1;if(t>=GARM)throwGren(.5+.75*Math.min(1,t/GFULL))}
+function throwGren(pw){
+  if(!alive||paused||gren<=0||grenCD>0)return;pw=pw||1;
   gren--;grenCD=.8;swing=1;beep(320,.08,'triangle',.04);
   const d=new THREE.Vector3();camera.getWorldDirection(d);
   const m=GTPL?GTPL.clone():new THREE.Mesh(gGeo,gMat);m.castShadow=true;
   m.position.copy(camera.position).addScaledVector(d,.6);scene.add(m);
-  grens.push({m,v:d.multiplyScalar(15).add(new THREE.Vector3(0,3.5,0)),t:1.6});
+  grens.push({m,v:d.multiplyScalar(15*pw).add(new THREE.Vector3(0,3.5*pw,0)),t:1.6});
+  if(cur===4&&gren<=0)equip(hasSlot(prevSlot)?prevSlot:2);   // acabaram as granadas: volta para a arma anterior
 }
 // explosão: clarão → bola de fogo → onda de choque no chão → faíscas e estilhaços → fumaça que sobe e fica → marca queimada
 const xfx=[],xLight=new THREE.PointLight(0xffa040,0,18);scene.add(xLight);   // luz fixa: criar luz nova recompila os shaders
@@ -1341,6 +1354,7 @@ function update(dt){
   P.vy-=20*dt;P.y+=P.vy*dt;if(P.y<=0){P.y=0;P.vy=0}
   bobT+=dt*(l>.1&&P.y===0?9:0);
   updateGrens(dt);grenCD-=dt;
+  if(gHold>=0){const t0=gHold;gHold+=dt;if(t0<GARM&&gHold>=GARM)clk(900,.06)}   // clique do pino
   cool-=dt;kick=Math.max(0,kick-dt*8);swing=Math.max(0,swing-dt*5);flashT-=dt;hmT-=dt;dmgA=Math.max(0,dmgA-dt*2.2);
   if(hmT<=0)$('hm').classList.remove('on');
   if(reloading){rt-=dt;if(RFZ>=0)rt=Math.max(.001,RL*(1-RFZ));if(rt<=0){reloading=false;const tk=Math.min(MAG-ammo,reserve);ammo+=tk;reserve-=tk}}
@@ -1350,6 +1364,7 @@ function update(dt){
   camera.rotation.y=yaw+(Math.random()-.5)*sh;camera.rotation.x=pitch+(Math.random()-.5)*sh;camera.rotation.z=(Math.random()-.5)*sh;
   const rp=reloading?1-rt/RL:0,tilt=reloading&&!cw.k?reloadPose(rp):(restPose(),0);RS.j=Math.max(0,RS.j-dt*6);
   gun.position.z=-.5+kick*.06+RS.j*.03;gun.position.y=-.24-VMP*.12+VMY+tilt*.06+RS.j*.015+Math.sin(bobT*.5)*.006;gun.position.x=.26-VMP*.1-tilt*.12+Math.cos(bobT*.5)*.01;
+  if(gHold>=0){const c=Math.min(1,gHold/GFULL);gun.position.z+=c*.12;gun.position.y+=c*.07;gun.position.x+=c*.05}   // granada: braço recua enquanto carrega
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
   if(VA)viewArms();
   flash.visible=flashT>0;mlight.intensity=flashT>0?3:0;
@@ -1413,9 +1428,9 @@ function update(dt){
   }
   // HUD
   $('hpf').style.width=hp+'%';$('hpt').textContent=Math.ceil(hp);
-  $('score').textContent=score;$('am').textContent=cw.k?'faca':ammo+' / '+reserve;$('wn').textContent=cw.name;$('mn').textContent='$'+money;
+  $('score').textContent=score;$('am').textContent=cw.gr?gren+' / '+GMAX:cw.k?'faca':ammo+' / '+reserve;$('wn').textContent=cw.name;$('mn').textContent='$'+money;
   $('rl').textContent=reloading?'recarregando':(!cw.k&&ammo===0&&reserve===0?'sem munição':'');
-  $('rbar').classList.toggle('on',reloading);$('rbar').firstElementChild.style.width=(rp*100)+'%';
+  $('rbar').classList.toggle('on',reloading||gHold>=0);$('rbar').firstElementChild.style.width=((gHold>=0?Math.min(1,gHold/GFULL):rp)*100)+'%';   // com a granada: força do arremesso
   const low=!cw.k&&ammo<=Math.ceil(MAG*.3);$('ammo').classList.toggle('low',low);$('cross').classList.toggle('low',low);
   $('cross').style.transform='translate(-50%,-50%) scale('+(1+moveAmt*.4+(P.y>0?.5:0)+kick*.5).toFixed(2)+')';
   $('dmg').style.opacity=dmgA;
@@ -1432,7 +1447,7 @@ addEventListener('keydown',e=>{
   }
   if(playing&&!paused&&alive){
     if(e.code==='KeyR')doReload();
-    if(e.code==='Digit1')equip(1);if(e.code==='Digit2')equip(2);if(e.code==='Digit3')equip(3);
+    if(e.code==='Digit1')equip(1);if(e.code==='Digit2')equip(2);if(e.code==='Digit3')equip(3);if(e.code==='Digit4')equip(4);
     if(e.code==='KeyG')throwGren();
   }
 });
@@ -1440,8 +1455,8 @@ addEventListener('keyup',e=>{keys[e.code]=false});
 let wheelT=0;   // scroll troca de arma: para baixo a próxima, para cima a anterior; uma troca a cada 150 ms (touchpad manda muitos eventos)
 addEventListener('wheel',e=>{if(!playing||paused||!alive||isTouch||!e.deltaY)return;e.preventDefault();const t=performance.now();if(t-wheelT<150)return;wheelT=t;cycle(e.deltaY>0?1:-1)},{passive:false});
 let mouseDown=false;
-addEventListener('mousedown',e=>{if(e.button===0&&playing&&!paused&&!isTouch){mouseDown=true;firing=true}});
-addEventListener('mouseup',()=>{mouseDown=false;firing=false});
+addEventListener('mousedown',e=>{if(e.button===0&&playing&&!paused&&!isTouch){mouseDown=true;if(cw.gr)grenDown();else firing=true}});
+addEventListener('mouseup',()=>{mouseDown=false;firing=false;grenUp()});
 addEventListener('mousemove',e=>{
   if(!playing||paused||isTouch)return;
   if(document.pointerLockElement||mouseDown){
@@ -1496,7 +1511,7 @@ function hold(id,on,off){
   b.addEventListener('touchend',e=>{e.preventDefault();if(off)off()},{passive:false});
   b.addEventListener('touchcancel',()=>{if(off)off()});
 }
-hold('bF',()=>{firing=true},()=>{firing=false});
+hold('bF',()=>{if(cw.gr)grenDown();else firing=true},()=>{firing=false;grenUp()});
 hold('bJ',()=>{keys.Space=true},()=>{keys.Space=false});
 hold('bR',doReload);
 
@@ -1534,7 +1549,7 @@ $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={bloodFx,splat,ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={bloodFx,splat,equip,gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
