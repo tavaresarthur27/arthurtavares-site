@@ -324,6 +324,35 @@ function updateShots(dt){
     if(c.t>6){scene.remove(c.m);shells.splice(i,1)}}
   for(let i=eflashes.length-1;i>=0;i--){const f=eflashes[i];f.life-=dt;if(f.life<=0){scene.remove(f.m);eflashes.splice(i,1)}}
 }
+// ---------- sangue: névoa na direção da bala, gotas esticadas que caem e mancham o chão ----------
+const BC=PP?2.2:1;   // com PP a cor passa pela exposição do grade: compensa para não virar preto
+const TX_SPLAT=[0,1,2].map(()=>fxTex(128,(x,n)=>{const h=n/2,R=()=>Math.random(),dot=(a,d,r)=>{x.beginPath();x.arc(h+Math.cos(a)*d,h+Math.sin(a)*d,r,0,7);x.fill()};
+  x.fillStyle=x.strokeStyle='rgba(120,10,10,.92)';x.lineCap='round';
+  for(let i=0;i<9;i++)dot(R()*6.28,R()*h*.22,h*(.1+R()*.16));                       // poça irregular
+  for(let i=0;i<8;i++){const a=R()*6.28,L=h*(.45+R()*.45);x.lineWidth=h*(.02+R()*.035);x.beginPath();x.moveTo(h+Math.cos(a)*h*.2,h+Math.sin(a)*h*.2);x.lineTo(h+Math.cos(a)*L,h+Math.sin(a)*L);x.stroke();dot(a,L,h*(.03+R()*.03))}   // raios com gota na ponta
+  for(let i=0;i<24;i++)dot(R()*6.28,h*(.3+R()*.6),h*(.012+R()*.04))}));            // respingos soltos
+const SPLAT_M=TX_SPLAT.map(t=>new THREE.MeshBasicMaterial({map:t,color:new THREE.Color(.75,.6,.6).multiplyScalar(BC*.6),transparent:true,opacity:.9,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3}));
+const DROP_M=new THREE.MeshBasicMaterial({map:TX_GLOW,color:new THREE.Color(0x7a0808).multiplyScalar(BC),transparent:true,depthWrite:false,side:THREE.DoubleSide});
+const bloodL=[],splats=[];
+function splat(x,z,s){const m=new THREE.Mesh(PLANE,SPLAT_M[Math.random()*3|0].clone());m.rotation.set(-Math.PI/2,0,Math.random()*6.28);m.position.set(x,.012+splats.length*1e-5,z);m.scale.setScalar(s);scene.add(m);
+  splats.push({m,t:0});if(splats.length>40){const o=splats.shift();scene.remove(o.m);o.m.material.dispose()}}
+// k: intensidade (1 tiro comum, ~2.5 headshot)
+function bloodFx(p,dir,k){
+  for(let i=0;i<2;i++){const m=new THREE.Sprite(new THREE.SpriteMaterial({map:TX_SMOKE,color:new THREE.Color(i?0x3a0404:0x5a0606).multiplyScalar(BC*.8),transparent:true,depthWrite:false,rotation:Math.random()*6.28}));   // névoa
+    m.position.copy(p).addScaledVector(dir,.05+i*.12);scene.add(m);bloodL.push({m,mist:1,v:dir.clone().multiplyScalar(1.2+i),t:0,max:.28+i*.12,s:(.22+i*.14)*k})}
+  for(let i=0,n=Math.round(7*k);i<n;i++){const m=new THREE.Mesh(PLANE,DROP_M);m.position.copy(p);scene.add(m);   // gotas
+    const v=dir.clone().multiplyScalar(1.5+Math.random()*3.5).add(new THREE.Vector3(Math.random()-.5,Math.random()*.8,Math.random()-.5).multiplyScalar(2.4));
+    bloodL.push({m,v,t:0,max:1.5,s:.012+Math.random()*.014})}
+}
+function updateBlood(dt){
+  for(let i=bloodL.length-1;i>=0;i--){const b=bloodL[i],p=b.m.position;b.t+=dt;
+    if(b.mist){const k=b.t/b.max;b.m.scale.setScalar(b.s*(.6+k*.9));b.m.material.opacity=.85*(1-k*k);p.addScaledVector(b.v,dt);b.v.multiplyScalar(Math.exp(-dt*6))}
+    else{b.v.y-=9.8*dt;p.addScaledVector(b.v,dt);b.m.quaternion.copy(camera.quaternion);b.m.scale.set(b.s,b.s+Math.min(.07,b.v.length()*.008),1);   // de frente para a câmera, esticada pela velocidade
+      if(p.y<.02){if(Math.random()<.5)splat(p.x,p.z,.12+Math.random()*.2);b.t=b.max}}
+    if(b.t>=b.max){scene.remove(b.m);if(b.mist)b.m.material.dispose();bloodL.splice(i,1)}}
+  for(const s of splats){s.t+=dt;if(s.t>20)s.m.material.opacity=.9*Math.max(0,1-(s.t-20)/5)}   // manchas somem devagar depois de 20 s
+  while(splats.length&&splats[0].t>25){const o=splats.shift();scene.remove(o.m);o.m.material.dispose()}
+}
 const flash=makeFlash();
 flash.position.set(0,.03,-.5);flash.visible=false;gun.add(flash);
 const mlight=new THREE.PointLight(0xffa24a,0,9);mlight.position.set(0,.05,-.7);gun.add(mlight);
@@ -594,7 +623,7 @@ function stab(){
   const ray=new THREE.Raycaster();ray.setFromCamera({x:0,y:0},camera);ray.far=2.6;
   const hit=ray.intersectObjects(enemies.flatMap(e=>e.meshes),false)[0];
   if(hit){const e=hit.object.userData.owner,hs=hit.object.userData.head;
-    e.hp-=cw.dmg*(hs?2:1);e.hitT=.12;if(hs)hsFx();const hm=$('hm');hm.classList.toggle('hs',hs);hm.classList.add('on');hmT=.12;
+    bloodFx(hit.point,ray.ray.direction,1);e.hp-=cw.dmg*(hs?2:1);e.hitT=.12;if(hs)hsFx();const hm=$('hm');hm.classList.toggle('hs',hs);hm.classList.add('on');hmT=.12;
     if(e.hp<=0)kill(e,hs,ray.ray.direction.clone(),hit.point.clone(),2.6);}
 }
 function icon(w){
@@ -708,7 +737,6 @@ const EM={
   glove:new THREE.MeshStandardMaterial({color:0x242424,roughness:.8,envMapIntensity:.3}),
   helm:new THREE.MeshStandardMaterial({color:0x4b5036,roughness:.72,envMapIntensity:.3})
 };
-const bloodM=[new THREE.MeshBasicMaterial({color:0x6a0a0a}),new THREE.MeshBasicMaterial({color:0x9a1414})];
 let EGUN=null;
 function epart(geo,m,s,x,y,z,par,rx){const o=new THREE.Mesh(geo,m);o.scale.set(s[0],s[1],s[2]);o.position.set(x,y,z);if(rx)o.rotation.x=rx;o.castShadow=true;par.add(o);return o}
 function makeSoldier(){
@@ -1166,8 +1194,9 @@ function kill(e,hs,dir,pt,force){                                  // dir/pt/for
     h.getWorldPosition(c.position);h.getWorldQuaternion(c.quaternion);h.getWorldScale(c.scale);h.visible=false;c.castShadow=true;scene.add(c);
     const a=new THREE.Vector3(e.x-P.x,0,e.z-P.z).normalize();
     drops.push({m:c,v:new THREE.Vector3(a.x*2.6+(Math.random()-.5),3.4,a.z*2.6+(Math.random()-.5)),w:new THREE.Vector3(7,0,5),t:0,fy:Math.max(.03,-new THREE.Box3().setFromBufferAttribute(c.geometry.attributes.position).min.y*c.scale.y),rx:0});
-    const p=e.g.position.clone();p.y=1.75;burst(p,10,bloodM,4,.06,14,.8,null)}
+    const p=e.g.position.clone();p.y=1.75;bloodFx(p,dir.clone().setY(.3).normalize(),2.5)}
   dying.push(ragdoll(e,dir,pt,force||3));
+  setTimeout(()=>splat(e.x+dir.x*.9,e.z+dir.z*.9,1+Math.random()*.5),700);   // poça onde o corpo cai
   score+=hs?150:100;money+=hs?150:100;beep(160,.3,'sawtooth',.06);
 }
 
@@ -1191,7 +1220,7 @@ function shoot(){
   ray.setFromCamera({x:(Math.random()-.5)*sp*2,y:(Math.random()-.5)*sp*2},camera);
   const hit=ray.intersectObjects(solids.concat(enemies.flatMap(e=>e.meshes)),false)[0];
   if(pi<3)tracer(mp,hit?hit.point:ray.ray.at(120,new THREE.Vector3()),380);
-  if(hit&&hit.object.userData.owner)burst(hit.point,5,bloodM,3.5,.05,9,.3,null);
+  if(hit&&hit.object.userData.owner)bloodFx(hit.point,ray.ray.direction,cw.dmg>60?1.6:1);
   if(hit&&!hit.object.userData.owner&&hit.face){
     const nn=hit.face.normal.clone().transformDirection(hit.object.matrixWorld),dc=new THREE.Mesh(holeG,holeM);
     dc.position.copy(hit.point).addScaledVector(nn,.004);dc.lookAt(dc.position.clone().add(nn));dc.rotateZ(Math.random()*6.28);dc.scale.setScalar(.8+Math.random()*.5);scene.add(dc);holes.push(dc);
@@ -1291,7 +1320,7 @@ function hsFx(){const b=$('hsb');b.classList.remove('on');void b.offsetWidth;b.c
 function banner(t){const b=$('banner');b.textContent=t;b.classList.add('on');setTimeout(()=>b.classList.remove('on'),1400)}
 function reset(){
   enemies.forEach(e=>scene.remove(e.g));enemies.length=0;
-  shots.forEach(s=>scene.remove(s.m));shots.length=0;[tracers,sparksL,shells,eflashes].forEach(L=>{L.forEach(o=>scene.remove(o.g||o.m));L.length=0});drops.forEach(d=>scene.remove(d.m));drops.length=0;grens.forEach(g=>scene.remove(g.m));grens.length=0;xfx.forEach(f=>{scene.remove(f.m);f.m.material.dispose()});xfx.length=0;xLight.intensity=shk=0;
+  shots.forEach(s=>scene.remove(s.m));shots.length=0;[tracers,sparksL,shells,eflashes,bloodL,splats].forEach(L=>{L.forEach(o=>scene.remove(o.g||o.m));L.length=0});drops.forEach(d=>scene.remove(d.m));drops.length=0;grens.forEach(g=>scene.remove(g.m));grens.length=0;xfx.forEach(f=>{scene.remove(f.m);f.m.material.dispose()});xfx.length=0;xLight.intensity=shk=0;
   if(!wantCont)startKit();                                          // partida nova (onda 1): volta ao inventário inicial
   hp=100;score=wantCont?contS:0;wave=wantCont?contW:0;wantCont=false;spawning=false;reloading=false;refill();load(eq[1]?1:2);
   pickups.forEach(p=>scene.remove(p.g));pickups.length=0;holes.forEach(h=>scene.remove(h));holes.length=0;dying.forEach(clearRag);dying.length=0;fx.forEach(f=>scene.remove(f.m));fx.length=0;
@@ -1489,7 +1518,7 @@ function loop(t){
   requestAnimationFrame(loop);
   const dt=Math.min(.05,(t-last)/1000);last=t;
   if(playing&&!paused&&alive)update(dt);
-  if(!paused){updateFx(dt);updateDust(dt);updateDrops(dt);updateShots(dt);updateXfx(dt)}
+  if(!paused){updateFx(dt);updateDust(dt);updateDrops(dt);updateShots(dt);updateXfx(dt);updateBlood(dt)}
   else if(!playing){
     yaw+=dt*.12;pitch=0;camera.position.set(0,3.2,22);camera.rotation.set(0,yaw,0);
     gun.position.z=-.5;gun.rotation.set(0,0,0);flash.visible=false;mlight.intensity=0;restPose();
@@ -1503,7 +1532,7 @@ $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={bloodFx,splat,ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
