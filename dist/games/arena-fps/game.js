@@ -604,7 +604,7 @@ function reloadPose(p){                                              // devolve 
 function stash(){const id=eq[cur];if(id&&st[id]){st[id].a=ammo;st[id].r=reserve}}
 function load(s){cur=s;const id=eq[s],w=WP[id],q=st[id];cw=w;ammo=q.a;reserve=q.r;MAG=w.mag;RL=w.rl;reloading=false;cool=.3;firing=false;buildGun(w)}
 function equip(s){if(!eq[s]){banner('Sem arma primária: abra a loja (B)');return}stash();load(s)}
-function cycle(){for(let i=1;i<=3;i++){const s=(cur-1+i)%3+1;if(eq[s]){equip(s);return}}}
+function cycle(d){d=d===-1?-1:1;for(let i=1;i<=3;i++){const s=(cur-1+i*d+9)%3+1;if(eq[s]){equip(s);return}}}   // d=-1 volta (scroll para cima)
 function refill(){for(const id in own)st[id]={a:WP[id].mag,r:WP[id].res}}
 function resup(){stash();for(const id in own){const w=WP[id];if(w.mag)st[id].r=Math.min(w.res,st[id].r+w.mag)}const q=st[eq[cur]];ammo=q.a;reserve=q.r}
 function save(){stash();try{localStorage.setItem('arenafps_v1',JSON.stringify({money,own,eq,st,bestW,contW,contS,armor,gren}))}catch(e){}}
@@ -1437,6 +1437,8 @@ addEventListener('keydown',e=>{
   }
 });
 addEventListener('keyup',e=>{keys[e.code]=false});
+let wheelT=0;   // scroll troca de arma: para baixo a próxima, para cima a anterior; uma troca a cada 150 ms (touchpad manda muitos eventos)
+addEventListener('wheel',e=>{if(!playing||paused||!alive||isTouch||!e.deltaY)return;e.preventDefault();const t=performance.now();if(t-wheelT<150)return;wheelT=t;cycle(e.deltaY>0?1:-1)},{passive:false});
 let mouseDown=false;
 addEventListener('mousedown',e=>{if(e.button===0&&playing&&!paused&&!isTouch){mouseDown=true;firing=true}});
 addEventListener('mouseup',()=>{mouseDown=false;firing=false});
