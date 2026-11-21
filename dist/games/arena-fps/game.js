@@ -188,6 +188,46 @@ function addBox(x,z,w,d,h,m,t){
 [[-8,-6,4,4,3],[9,-8,3,6,2.5],[0,8,6,2,2],[-14,10,3,3,3],[14,12,4,4,2],[0,-16,8,2,3],[-18,-14,2,6,2.5],[20,0,2,8,3],[-20,0,2,8,2.2]]
  .forEach(a=>boxes.push(a[4]>2.5?addBox(a[0],a[1],a[2],a[3],a[4],conM,3):addBox(a[0],a[1],a[2],a[3],a[4],woodM,1.25)));
 
+// chão "assado": oclusão de ambiente junto às paredes e caixas + manchas grandes que quebram a repetição do concreto.
+// Uma textura no chão inteiro (uv2): serve de aoMap (luz do céu) e escurece a cor (sujeira acumulada nos cantos).
+(function(){
+  const N=isTouch?512:1024,c=mkC(N),g=c.getContext('2d'),k=N/60,X=x=>(x+30)*k;   // canvas y=0 fica em z=-30
+  g.fillStyle='#fff';g.fillRect(0,0,N,N);
+  blobs(g,N,70,.04,.16,['#d8d0c4','#e8e2d8','#cfc6b6'],.5);                       // manchas grandes de sujeira/umidade
+  blobs(g,N,30,.01,.035,['#a89c8a','#bdb19e'],.45);
+  const soft=(x,z,w,d,blur,a)=>{g.save();g.shadowColor='rgba(0,0,0,'+a+')';g.shadowBlur=blur*k;g.shadowOffsetX=N*2;g.fillStyle='#000';g.fillRect(X(x-w/2)-N*2,X(z-d/2),w*k,d*k);g.restore()};   // retângulo desfocado (shadowBlur funciona em todo navegador)
+  for(let i=0;i<2;i++){soft(0,-30,60,.6,2.2,.75);soft(0,30,60,.6,2.2,.75);soft(-30,0,.6,60,2.2,.75);soft(30,0,.6,60,2.2,.75)}   // paredes
+  for(const o of boxes){const w=o.maxX-o.minX,d=o.maxZ-o.minZ,x=(o.minX+o.maxX)/2,z=(o.minZ+o.maxZ)/2;soft(x,z,w+.3,d+.3,1.6+o.h*.25,.85);soft(x,z,w,d,.5,.9)}
+  const t=new THREE.CanvasTexture(c);t.anisotropy=MAXANI;
+  floor.geometry.setAttribute('uv2',floor.geometry.attributes.uv);
+  floorM.aoMap=t;floorM.aoMapIntensity=1;
+  floorM.onBeforeCompile=s=>{s.fragmentShader=s.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb*=mix(1.,texture2D(aoMap,vUv2).r,.55);')};
+  floorM.needsUpdate=true;
+})();
+
+// cidade em volta da arena: prédios que somem na névoa, para o horizonte não ficar vazio (sem colisão, sem sombra)
+(function(){
+  const facM=mat((g,n)=>{                                                          // fachada: um andar (3 m) com uma janela por textura
+    g.fillStyle='#a49a88';g.fillRect(0,0,n,n);blobs(g,n,40,.03,.12,['#968c7a','#b3a996'],.35);
+    g.fillStyle='#2d3238';g.fillRect(n*.2,n*.22,n*.6,n*.5);
+    const gl=g.createLinearGradient(0,n*.22,0,n*.72);gl.addColorStop(0,'rgba(170,190,210,.35)');gl.addColorStop(1,'rgba(40,50,60,0)');g.fillStyle=gl;g.fillRect(n*.2,n*.22,n*.6,n*.5);
+    g.fillStyle='#8a8070';g.fillRect(n*.16,n*.72,n*.68,n*.05);                      // peitoril
+    const gr=g.createLinearGradient(0,n*.75,0,n);gr.addColorStop(0,'rgba(60,50,40,.25)');gr.addColorStop(1,'rgba(60,50,40,0)');g.fillStyle=gr;g.fillRect(0,n*.75,n,n*.25);   // escorrido
+    grain(g,n,20);
+  },3,{roughness:.85,envMapIntensity:.5});
+  const roofM=new THREE.MeshStandardMaterial({color:0x6d675e,roughness:.95});
+  const gnd=new THREE.Mesh(new THREE.PlaneGeometry(360,360),new THREE.MeshStandardMaterial({color:new THREE.Color('#8a8272').convertSRGBToLinear(),roughness:1}));
+  gnd.rotation.x=-Math.PI/2;gnd.position.y=-.02;scene.add(gnd);
+  const tints=['#ffffff','#e9d6c0','#c9ccd0','#d8c9a8','#b9aa98'].map(c=>{const m=facM.clone();m.color.set(c);return m});   // mesma textura, cores diferentes
+  const n=isTouch?26:44;
+  for(let i=0;i<n;i++){
+    const a=i/n*6.283+Math.random()*.1,r=62+Math.random()*(i%3?30:80),w=8+Math.random()*14,d=8+Math.random()*14,h=3*Math.round(2+Math.random()*(r>100?12:6)),fm=tints[i%tints.length];
+    const geo=new THREE.BoxGeometry(w,h,d);fitUV(geo,w,h,d,3);
+    const b=new THREE.Mesh(geo,[fm,fm,roofM,roofM,fm,fm]);b.position.set(Math.cos(a)*r,h/2,Math.sin(a)*r);b.rotation.y=Math.random()*6.283;
+    b.matrixAutoUpdate=false;b.updateMatrix();scene.add(b);
+  }
+})();
+
 function resolve(p,r){
   for(const o of boxes){
     const cx=Math.max(o.minX,Math.min(p.x,o.maxX)),cz=Math.max(o.minZ,Math.min(p.z,o.maxZ));
