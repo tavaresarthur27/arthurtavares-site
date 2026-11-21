@@ -1522,7 +1522,8 @@ addEventListener('touchmove',e=>{
 addEventListener('touchend',endTouch);addEventListener('touchcancel',endTouch);
 function hold(id,on,off){
   const b=$(id);
-  b.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();on()},{passive:false});
+  b.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();on();
+    const t=e.changedTouches[0];if(t&&playing&&!paused&&!look)look={id:t.identifier,x:t.clientX,y:t.clientY}},{passive:false});   // arrastar o dedo que segura o botão também gira a câmera
   b.addEventListener('touchend',e=>{e.preventDefault();if(off)off()},{passive:false});
   b.addEventListener('touchcancel',()=>{if(off)off()});
 }
