@@ -839,13 +839,18 @@ function updatePickups(dt){
 // ou se falhar (index.html aberto direto, sem servidor), os inimigos usam o soldado procedural (makeSoldier).
 let SOLD=null,SOLDW=true;   // SOLDW: soldado ainda carregando (a primeira onda espera)
 const UPPER=/^(spine_0[123]|neck_01|Head|clavicle|upperarm|lowerarm|hand|index|middle|pinky|ring|thumb)/;
+// ?debug: mostra na tela qual soldado carregou e por que os outros falharam (para diagnosticar no celular, sem console)
+function dbgMsg(m){console.info('Arena FPS: '+m);if(!/[?&]debug/.test(location.search))return;let d=$('dbgm');
+  if(!d){d=document.createElement('div');d.id='dbgm';d.style.cssText='position:fixed;left:50%;top:4px;transform:translateX(-50%);z-index:20;max-width:90vw;background:#000c;color:#ffd166;font:12px monospace;padding:4px 8px;border-radius:4px;pointer-events:none;white-space:pre-wrap';document.body.appendChild(d)}
+  d.textContent+=(d.textContent?' | ':'')+m}
+const errTxt=e=>e?(e.message||(e.target&&e.target.status?'HTTP '+e.target.status:'')||String(e)).slice(0,160):'?';
 function loadSoldier(){
   const done=()=>{SOLDW=false;loadWeapons()};                        // armas só depois do soldado, para não disputar o download
   if(!THREE.GLTFLoader||!THREE.SkeletonUtils||location.protocol==='file:')return done();
   const L=new THREE.GLTFLoader(),fail=e=>{console.warn('soldado 3D indisponível, usando o procedural',e);done()};
-  const quat=()=>L.load('assets/soldado.gltf',g=>L.load('assets/animacoes.glb',a=>{try{SOLD=prepSoldier(g.scene,a.animations);console.info('Arena FPS: soldado Quaternius'+(isTouch?' (modo celular)':''));done()}catch(err){fail(err)}},undefined,fail),undefined,fail);
-  const tat=()=>L.load('assets/tatico.glb',g=>{try{SOLD=prepMixamo(g);VA=makeVArms();console.info('Arena FPS: soldado tático');done()}catch(err){console.warn(err);quat()}},undefined,()=>quat());
-  L.load('assets/russo.glb',g=>{try{SOLD=prepMixamo(g,'assets/russo/');VA=makeVArms();console.info('Arena FPS: soldado russo');done()}catch(err){console.warn(err);tat()}},undefined,()=>tat());
+  const quat=()=>L.load('assets/soldado.gltf',g=>L.load('assets/animacoes.glb',a=>{try{SOLD=prepSoldier(g.scene,a.animations);dbgMsg('soldado Quaternius');done()}catch(err){fail(err)}},undefined,fail),undefined,fail);
+  const tat=()=>L.load('assets/tatico.glb',g=>{try{SOLD=prepMixamo(g);VA=makeVArms();dbgMsg('soldado tático');done()}catch(err){console.warn(err);dbgMsg('tático falhou: '+errTxt(err));quat()}},undefined,e=>{dbgMsg('tático não baixou: '+errTxt(e));quat()});
+  L.load('assets/russo.glb',g=>{try{SOLD=prepMixamo(g,'assets/russo/');VA=makeVArms();dbgMsg('soldado russo'+(isTouch?' (celular)':''));done()}catch(err){console.warn(err);dbgMsg('russo falhou: '+errTxt(err));tat()}},undefined,e=>{dbgMsg('russo não baixou: '+errTxt(e));tat()});
 }
 // soldado tático (Sketchfab "Character (Type Tactical Man 1)" de LokitoBlu, CC BY 4.0, rig e animações de fuzil da Mixamo)
 // assets/tatico.glb: corpo (cm) + clipes idle/run/fire/hit/back/crouch. Sem texturas: cada peça recebe uma cor.
