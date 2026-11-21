@@ -844,7 +844,6 @@ function loadSoldier(){
   if(!THREE.GLTFLoader||!THREE.SkeletonUtils||location.protocol==='file:')return done();
   const L=new THREE.GLTFLoader(),fail=e=>{console.warn('soldado 3D indisponível, usando o procedural',e);done()};
   const quat=()=>L.load('assets/soldado.gltf',g=>L.load('assets/animacoes.glb',a=>{try{SOLD=prepSoldier(g.scene,a.animations);console.info('Arena FPS: soldado Quaternius'+(isTouch?' (modo celular)':''));done()}catch(err){fail(err)}},undefined,fail),undefined,fail);
-  if(isTouch)return quat();                                         // celular: soldado leve (Quaternius)
   const tat=()=>L.load('assets/tatico.glb',g=>{try{SOLD=prepMixamo(g);VA=makeVArms();console.info('Arena FPS: soldado tático');done()}catch(err){console.warn(err);quat()}},undefined,()=>quat());
   L.load('assets/russo.glb',g=>{try{SOLD=prepMixamo(g,'assets/russo/');VA=makeVArms();console.info('Arena FPS: soldado russo');done()}catch(err){console.warn(err);tat()}},undefined,()=>tat());
 }
@@ -931,12 +930,14 @@ function viewArms(){
   if(gL){curlHand('Left',gL);ikArm('Left',wrist(hL,gL,'Left'),camera.localToWorld(new THREE.Vector3(-.6,-.9,.3)),[D(gL.f),D(gL.t)])}
   else ikArm('Left',camera.localToWorld(new THREE.Vector3(-.3,-.75,.15)),camera.localToWorld(new THREE.Vector3(-.6,-.9,.3)),null); // mão esquerda fora da tela
 }
+// celular: texturas do soldado em 1024 px (as originais têm 2048; 4x menos memória de vídeo)
+function shrinkTex(t){const im=t.image,M=1024;if(!im||im.width<=M)return;const c=document.createElement('canvas');c.width=c.height=M;c.getContext('2d').drawImage(im,0,0,M,M);t.image=c;t.needsUpdate=true}
 function prepMixamo(gl,tdir){                                        // tdir: pasta das texturas Packed*_Diffuse/Normal (sem ela, cores lisas)
   const sk=o=>Object.assign(o,{skinning:true}),cor=c=>sk(new THREE.MeshStandardMaterial({color:c,roughness:.85,envMapIntensity:.3}));
   const M={Body:cor(0xb98767),Tops:sk(new THREE.MeshStandardMaterial({map:camoT,roughness:.9,envMapIntensity:.3})),Bottoms:sk(new THREE.MeshStandardMaterial({map:camoT,color:0xbfb8a0,roughness:.9,envMapIntensity:.3})),
     Shoes:cor(0x1d1915),Gloves:cor(0x242424),Eyewear:sk(GM.lens.clone())};
   const root=new THREE.Group();gl.scene.scale.setScalar(.01);root.add(gl.scene);   // cm → m
-  const TX={},tex=n=>{if(!TX[n]){const t=new THREE.TextureLoader().load(tdir+n+'.png');if(/Diffuse/.test(n))t.encoding=THREE.sRGBEncoding;t.anisotropy=4;TX[n]=t}return TX[n]};
+  const TX={},tex=n=>{if(!TX[n]){const t=new THREE.TextureLoader().load(tdir+n+'.png',isTouch?shrinkTex:undefined);if(/Diffuse/.test(n))t.encoding=THREE.sRGBEncoding;t.anisotropy=4;TX[n]=t}return TX[n]};
   const PK={};const packed=m=>{const k=(/Packed\D*(\d)/.exec(m.name)||[])[1];if(k==null)return null;   // personagem com texturas próprias (ex.: soldado russo)
     return PK[k]=PK[k]||sk(new THREE.MeshStandardMaterial({map:tex('Packed'+k+'_Diffuse'),normalMap:tex('Packed'+k+'_Normal'),roughness:.8,envMapIntensity:.35}))};
   root.traverse(o=>{if(!o.isSkinnedMesh)return;const pm=tdir&&packed(o.material);
