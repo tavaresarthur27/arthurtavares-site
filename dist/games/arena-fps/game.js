@@ -23,8 +23,9 @@ scene.add(camera);
 
 // céu físico (Sky.js) e luz do sol na mesma direção
 const SUN=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-38),THREE.MathUtils.degToRad(215));
+let SKY=null;
 if(THREE.Sky){
-  const sky=new THREE.Sky();sky.scale.setScalar(180);
+  const sky=SKY=new THREE.Sky();sky.scale.setScalar(180);
   const u=sky.material.uniforms;u.turbidity.value=2.5;u.rayleigh.value=1.2;u.mieCoefficient.value=.0025;u.mieDirectionalG.value=.85;u.sunPosition.value.copy(SUN);
   // o céu também ilumina e reflete nos materiais (IBL). O disco do sol (x19000) fica fora do mapa de ambiente,
   // senão ele ilumina tudo por igual e objetos escuros ficam cinza-claros; o sol direto vem da DirectionalLight.
@@ -35,13 +36,13 @@ if(THREE.Sky){
   if(u.uDisk)u.uDisk.value=1;
   scene.add(sky);
 }else scene.background=new THREE.Color('#9fb6cf').convertSRGBToLinear();
-scene.add(new THREE.HemisphereLight(0xcfe0ff,0x7a6248,.2));
+const HEMI=new THREE.HemisphereLight(0xcfe0ff,0x7a6248,.2);scene.add(HEMI);
 const sun=new THREE.DirectionalLight(0xffe9cc,1.7);sun.position.copy(SUN).multiplyScalar(50);scene.add(sun);
 sun.castShadow=true;sun.shadow.mapSize.set(isTouch?1024:2048,isTouch?1024:2048);
 const shc=sun.shadow.camera;shc.left=-34;shc.right=34;shc.top=34;shc.bottom=-34;shc.near=1;shc.far=110;sun.shadow.bias=-.0004;sun.shadow.normalBias=.03;
 
 // pós-processamento: cena em HDR (half float) → bloom leve → tonemapping ACES, cor, vinheta e grão → FXAA
-let composer=null,grade=null,fxaa=null;
+let composer=null,grade=null,fxaa=null,bcPass=null;
 if(PP){
   const rt=new THREE.WebGLRenderTarget(innerWidth,innerHeight,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat,type:THREE.HalfFloatType});
   composer=new THREE.EffectComposer(renderer,rt);
@@ -66,16 +67,36 @@ if(PP){
   });
   composer.addPass(grade);
   fxaa=new THREE.ShaderPass(THREE.FXAAShader);composer.addPass(fxaa);
+  // bodycam: lente olho de peixe (barril), aberração cromática, cor lavada e fria, contraste alto, ruído e linhas
+  bcPass=new THREE.ShaderPass({
+    uniforms:{tDiffuse:{value:null},time:{value:0}},
+    vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:[
+      'uniform sampler2D tDiffuse;uniform float time;varying vec2 vUv;',
+      'float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
+      'void main(){vec2 p=vUv-.5;float r2=dot(p*vec2(1.6,1.),p*vec2(1.6,1.));',
+      ' vec2 q=p*(1.+.32*r2)/(1.+.32*.5*1.64);',                                    // barril: bordas comprimidas, cantos ainda cobertos
+      ' vec2 c=q*r2*.018,u=q+.5;',
+      ' vec3 col=vec3(texture2D(tDiffuse,u+c).r,texture2D(tDiffuse,u).g,texture2D(tDiffuse,u-c).b);',
+      ' float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,.62);',             // cor lavada
+      ' col=(col-.5)*1.18+.5;col*=vec3(.94,1.,1.04);',                                // contraste e tom frio
+      ' col+=(rnd(floor(vUv*vec2(480.,270.))+fract(time))-.5)*.07;',                  // ruído de sensor
+      ' col*=.965+.035*sin(vUv.y*800.+time*40.);',                                    // linhas de varredura
+      ' col*=smoothstep(1.05,.32,length(p*vec2(1.25,1.)));',                          // vinheta forte
+      ' gl_FragColor=vec4(clamp(col,0.,1.),1.);}'].join('\n')
+  });
+  bcPass.enabled=false;composer.addPass(bcPass);
 }
 
 let VMP=0;   // 0 em paisagem, até 1 em retrato estreito
-let BASEFOV=75;
+let BASEFOV=75,BODY=false;try{BODY=localStorage.getItem('arenafps_cam')==='1'}catch(e){}   // BODY: modo bodycam (preferência à parte do save)
 function onResize(){
   const w=innerWidth,h=innerHeight;
   renderer.setSize(w,h);
   camera.aspect=w/h;
   // retrato: mantém o campo de visão horizontal (senão a tela vira um túnel com metade de céu); arma desce e entra para o centro
-  camera.fov=BASEFOV=camera.aspect<1?Math.min(110,2*Math.atan(Math.tan(37.5*Math.PI/180)/camera.aspect)*180/Math.PI):75;
+  const hf=BODY?52:37.5;   // bodycam: lente grande-angular
+  camera.fov=BASEFOV=camera.aspect<1?Math.min(120,2*Math.atan(Math.tan(hf*Math.PI/180)/camera.aspect)*180/Math.PI):hf*2;
   VMP=camera.aspect<1?Math.min(1,(1-camera.aspect)*1.6):0;
   camera.updateProjectionMatrix();
   if(composer){composer.setSize(w,h);const pr=renderer.getPixelRatio();fxaa.material.uniforms.resolution.value.set(1/(w*pr),1/(h*pr))}
@@ -158,14 +179,17 @@ const conM=mat((g,n)=>{
 function ctex(fn){const c=mkC(128);fn(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=8;return t}
 const camoT=ctex(g=>{g.fillStyle='#46513a';g.fillRect(0,0,128,128);['#2f3a29','#6b6a4a','#222a1f'].forEach(c=>{g.fillStyle=c;for(let i=0;i<14;i++){g.beginPath();g.ellipse(Math.random()*128,Math.random()*128,8+Math.random()*16,5+Math.random()*10,Math.random()*3,0,6.283);g.fill()}})});
 
+// ---------- mapas ----------
+// MAP1 (arena ao ar livre) e MAP2 (galpão do modo bodycam) ficam na cena; setMap() mostra um e troca colisões, itens e luz.
+const MAP1=new THREE.Group(),MAP2=new THREE.Group();MAP2.visible=false;scene.add(MAP1,MAP2);let MG=MAP1;   // MG: grupo que recebe as peças em addBox
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(60,60),floorM);
 floorM.map.repeat.set(15,15);floorM.normalMap.repeat.set(15,15);
-floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;MAP1.add(floor);
 // postes (decoração; de dia ficam apagados)
 const poleM=new THREE.MeshStandardMaterial({color:0x2a2d33,metalness:.8,roughness:.45}),lampM=new THREE.MeshStandardMaterial({color:0x9a9890,metalness:.3,roughness:.6});
 [[-22,-22],[22,-22],[-22,22],[22,22]].forEach(p=>{
-  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.08,.1,5,10),poleM);pole.position.set(p[0],2.5,p[1]);pole.castShadow=true;scene.add(pole);
-  const lh=new THREE.Mesh(new THREE.BoxGeometry(.5,.12,.3),lampM);lh.position.set(p[0],5.05,p[1]);lh.castShadow=true;scene.add(lh);
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.08,.1,5,10),poleM);pole.position.set(p[0],2.5,p[1]);pole.castShadow=true;MAP1.add(pole);
+  const lh=new THREE.Mesh(new THREE.BoxGeometry(.5,.12,.3),lampM);lh.position.set(p[0],5.05,p[1]);lh.castShadow=true;MAP1.add(lh);
 });
 // poeira suspensa no ar
 const dustG=new THREE.BufferGeometry(),DN=isTouch?120:260,dp=new Float32Array(DN*3);
@@ -175,7 +199,8 @@ const dust=new THREE.Points(dustG,new THREE.PointsMaterial({color:0xfff2d6,size:
 function updateDust(dt){const a=dustG.attributes.position.array;for(let i=0;i<DN;i++){a[i*3]+=Math.sin(i+performance.now()*.0002)*dt*.08;a[i*3+1]+=dt*.03;if(a[i*3+1]>5)a[i*3+1]=0}dustG.attributes.position.needsUpdate=true}
 
 const solids=[],boxes=[];
-const HALF=30;
+const PICK1=[[-25,-4],[25,-6],[3,-24],[-12,-22],[12,22],[-26,24],[26,24],[-4,1],[7,3]];   // itens no mapa 1
+let HALF=30,CEIL=0;   // metade do lado do mapa atual e altura do teto (0 = céu aberto)
 // UV por face proporcional ao tamanho, com número inteiro de repetições (a textura não estica)
 function fitUV(geo,w,h,d,t){
   const uv=geo.attributes.uv,dims=[[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]];
@@ -185,7 +210,7 @@ function fitUV(geo,w,h,d,t){
 function addBox(x,z,w,d,h,m,t){
   const geo=new THREE.BoxGeometry(w,h,d);fitUV(geo,w,h,d,t);
   const o=new THREE.Mesh(geo,m);
-  o.position.set(x,h/2,z);o.castShadow=o.receiveShadow=true;scene.add(o);solids.push(o);
+  o.position.set(x,h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);solids.push(o);
   return {minX:x-w/2,maxX:x+w/2,minZ:z-d/2,maxZ:z+d/2,h};
 }
 [[0,-HALF-.5,61,1],[0,HALF+.5,61,1],[-HALF-.5,0,1,61],[HALF+.5,0,1,61]].forEach(a=>addBox(a[0],a[1],a[2],a[3],5,wallM,5));
@@ -194,20 +219,21 @@ function addBox(x,z,w,d,h,m,t){
 
 // chão "assado": oclusão de ambiente junto às paredes e caixas + manchas grandes que quebram a repetição do concreto.
 // Uma textura no chão inteiro (uv2): serve de aoMap (luz do céu) e escurece a cor (sujeira acumulada nos cantos).
-(function(){
-  const N=isTouch?512:1024,c=mkC(N),g=c.getContext('2d'),k=N/60,X=x=>(x+30)*k;   // canvas y=0 fica em z=-30
+function bakeFloor(B,H,mesh,m){                                    // B: caixas, H: metade do lado do mapa
+  const N=isTouch?512:1024,c=mkC(N),g=c.getContext('2d'),k=N/(2*H),X=x=>(x+H)*k;   // canvas y=0 fica em z=-H
   g.fillStyle='#fff';g.fillRect(0,0,N,N);
   blobs(g,N,70,.04,.16,['#d8d0c4','#e8e2d8','#cfc6b6'],.5);                       // manchas grandes de sujeira/umidade
   blobs(g,N,30,.01,.035,['#a89c8a','#bdb19e'],.45);
   const soft=(x,z,w,d,blur,a)=>{g.save();g.shadowColor='rgba(0,0,0,'+a+')';g.shadowBlur=blur*k;g.shadowOffsetX=N*2;g.fillStyle='#000';g.fillRect(X(x-w/2)-N*2,X(z-d/2),w*k,d*k);g.restore()};   // retângulo desfocado (shadowBlur funciona em todo navegador)
-  for(let i=0;i<2;i++){soft(0,-30,60,.6,2.2,.75);soft(0,30,60,.6,2.2,.75);soft(-30,0,.6,60,2.2,.75);soft(30,0,.6,60,2.2,.75)}   // paredes
-  for(const o of boxes){const w=o.maxX-o.minX,d=o.maxZ-o.minZ,x=(o.minX+o.maxX)/2,z=(o.minZ+o.maxZ)/2;soft(x,z,w+.3,d+.3,1.6+o.h*.25,.85);soft(x,z,w,d,.5,.9)}
+  for(let i=0;i<2;i++){soft(0,-H,2*H,.6,2.2,.75);soft(0,H,2*H,.6,2.2,.75);soft(-H,0,.6,2*H,2.2,.75);soft(H,0,.6,2*H,2.2,.75)}   // paredes
+  for(const o of B){const w=o.maxX-o.minX,d=o.maxZ-o.minZ,x=(o.minX+o.maxX)/2,z=(o.minZ+o.maxZ)/2;soft(x,z,w+.3,d+.3,1.6+o.h*.25,.85);soft(x,z,w,d,.5,.9)}
   const t=new THREE.CanvasTexture(c);t.anisotropy=MAXANI;
-  floor.geometry.setAttribute('uv2',floor.geometry.attributes.uv);
-  floorM.aoMap=t;floorM.aoMapIntensity=1;
-  floorM.onBeforeCompile=s=>{s.fragmentShader=s.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb*=mix(1.,texture2D(aoMap,vUv2).r,.55);')};
-  floorM.needsUpdate=true;
-})();
+  mesh.geometry.setAttribute('uv2',mesh.geometry.attributes.uv);
+  m.aoMap=t;m.aoMapIntensity=1;
+  m.onBeforeCompile=s=>{s.fragmentShader=s.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb*=mix(1.,texture2D(aoMap,vUv2).r,.55);')};
+  m.needsUpdate=true;
+}
+bakeFloor(boxes,30,floor,floorM);
 
 // cidade em volta da arena: prédios que somem na névoa, para o horizonte não ficar vazio (sem colisão, sem sombra)
 (function(){
@@ -221,16 +247,66 @@ function addBox(x,z,w,d,h,m,t){
   },3,{roughness:.85,envMapIntensity:.5});
   const roofM=new THREE.MeshStandardMaterial({color:0x6d675e,roughness:.95});
   const gnd=new THREE.Mesh(new THREE.PlaneGeometry(360,360),new THREE.MeshStandardMaterial({color:new THREE.Color('#8a8272').convertSRGBToLinear(),roughness:1}));
-  gnd.rotation.x=-Math.PI/2;gnd.position.y=-.02;scene.add(gnd);
+  gnd.rotation.x=-Math.PI/2;gnd.position.y=-.02;MAP1.add(gnd);
   const tints=['#ffffff','#e9d6c0','#c9ccd0','#d8c9a8','#b9aa98'].map(c=>{const m=facM.clone();m.color.set(c);return m});   // mesma textura, cores diferentes
   const n=isTouch?26:44;
   for(let i=0;i<n;i++){
     const a=i/n*6.283+Math.random()*.1,r=62+Math.random()*(i%3?30:80),w=8+Math.random()*14,d=8+Math.random()*14,h=3*Math.round(2+Math.random()*(r>100?12:6)),fm=tints[i%tints.length];
     const geo=new THREE.BoxGeometry(w,h,d);fitUV(geo,w,h,d,3);
     const b=new THREE.Mesh(geo,[fm,fm,roofM,roofM,fm,fm]);b.position.set(Math.cos(a)*r,h/2,Math.sin(a)*r);b.rotation.y=Math.random()*6.283;
-    b.matrixAutoUpdate=false;b.updateMatrix();scene.add(b);
+    b.matrixAutoUpdate=false;b.updateMatrix();MAP1.add(b);
   }
 })();
+
+// galpão do modo bodycam (MAP2): fechado, à noite, teto a 6 m, luzes fluorescentes (uma piscando), prateleiras de
+// caixotes, contêineres, colunas e um escritório com duas portas. Corredores largos: os inimigos andam em linha reta.
+const MAPS=[{half:30,ceil:0,start:[0,22],pick:PICK1,solids:solids.slice(),boxes:boxes.slice()}];
+const L2=[];   // luzes do galpão: ficam sempre na cena (intensidade 0 no mapa 1) para não recompilar os shaders na troca
+(function(){
+  const H=22,C=6,keepS=solids.slice(),keepB=boxes.slice();solids.length=0;boxes.length=0;MG=MAP2;
+  const contM=(c1,c2)=>mat((g,n)=>{g.fillStyle=c1;g.fillRect(0,0,n,n);                                  // contêiner: chapa ondulada e ferrugem
+    for(let i=0;i<16;i++){g.fillStyle=i%2?c2:'rgba(0,0,0,.18)';g.fillRect(i*n/16,0,n/32,n)}
+    blobs(g,n,40,.01,.06,['#5a3a22','#7a4a2a'],.35);grain(g,n,18)},6,{roughness:.6,metalness:.4,envMapIntensity:.5});
+  const cRed=contM('#7a2a22','rgba(255,255,255,.07)'),cBlue=contM('#24435e','rgba(255,255,255,.07)');
+  const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),floorM.clone());   // mesma textura do chão, com outra oclusão
+  const uv=fl.geometry.attributes.uv;for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/60,uv.getY(i)*2*H/60);   // mesma escala do concreto do mapa 1
+  fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MAP2.add(fl);
+  [[0,-H-.5,2*H+2,1],[0,H+.5,2*H+2,1],[-H-.5,0,1,2*H+2],[H+.5,0,1,2*H+2]].forEach(a=>addBox(a[0],a[1],a[2],a[3],C,conM,3));   // paredes externas
+  const ceil=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),new THREE.MeshStandardMaterial({color:0x2a2c30,roughness:.9,metalness:.3}));
+  ceil.rotation.x=Math.PI/2;ceil.position.y=C;MAP2.add(ceil);solids.push(ceil);
+  for(let i=-H+4;i<H;i+=6){const v=new THREE.Mesh(new THREE.BoxGeometry(2*H,.35,.2),poleM);v.position.set(0,C-.2,i);MAP2.add(v)}   // vigas do teto
+  const B=(x,z,w,d,h,m,t)=>boxes.push(addBox(x,z,w,d,h,m,t));
+  [4,10,16].forEach(x=>B(x,-8,1.4,12,3.2,woodM,1.25));                                         // prateleiras de caixotes
+  B(-6,6,2.6,7,2.7,cRed,2.6);B(14,10,7,2.6,2.7,cBlue,2.6);                                     // contêineres
+  [[-8,-2],[-8,12],[0,6],[8,12],[0,-16],[-14,-2]].forEach(p=>B(p[0],p[1],.6,.6,C,conM,3));    // colunas
+  [[-2,-4,1.2,1.2,1.2],[2,12,1.6,1.2,1],[-14,4,1.2,2.4,1.2],[18,18,2,2,1.5],[-18,16,2,1.2,1.1],[-17,-17,2,1,.8]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],woodM,1.25));
+  [[-18,-11,6,.3,3],[-12,-11,2,.3,3],[-11,-19,.3,4,3],[-11,-12,.3,2,3]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],conM,3));   // escritório (portas em x=-14 e z=-15)
+  bakeFloor(boxes,H,fl,fl.material);
+  const lampM=new THREE.MeshBasicMaterial({color:new THREE.Color(0xeef4ff).multiplyScalar(PP?3:1.4)});
+  [[-12,-14],[-12,6],[0,-6],[0,12],[12,-6],[12,14]].forEach((q,i)=>{
+    const f=new THREE.Mesh(new THREE.BoxGeometry(1.6,.06,.22),lampM);f.position.set(q[0],C-.45,q[1]);MAP2.add(f);
+    const l=new THREE.PointLight(0xdfe8ff,0,20,2);l.position.set(q[0],C-.7,q[1]);l.userData={i:PP?5.5:3,fl:i===0,lamp:f};scene.add(l);L2.push(l);
+  });
+  // reflexos e luz ambiente do galpão: um quarto escuro com painéis claros no teto (o céu do mapa 1 deixaria tudo claro)
+  const room=new THREE.Scene(),rm=new THREE.Mesh(new THREE.BoxGeometry(40,8,40),new THREE.MeshBasicMaterial({color:0x14161a,side:THREE.BackSide}));room.add(rm);
+  for(let i=0;i<4;i++){const pn=new THREE.Mesh(new THREE.PlaneGeometry(4,1),new THREE.MeshBasicMaterial({color:0x8a94a6}));pn.rotation.x=Math.PI/2;pn.position.set(-12+i*8,3.9,0);room.add(pn)}
+  const pm=new THREE.PMREMGenerator(renderer),env=pm.fromScene(room).texture;pm.dispose();
+  MAPS.push({half:H,ceil:C,start:[0,18],pick:[[-18,-18],[-16,-6],[7,-16],[13,-1],[-2,16],[19,4],[-19,19],[7,4],[-4,-12]],
+    solids:solids.slice(),boxes:boxes.slice(),env,bg:new THREE.Color(0x07080a),fog:[new THREE.Color(0x0b0d10),10,46],sun:0,hemi:.04});
+  MAPS[0].env=scene.environment;MAPS[0].bg=scene.background;MAPS[0].fog=[scene.fog.color.clone(),scene.fog.near,scene.fog.far];MAPS[0].sun=sun.intensity;MAPS[0].hemi=HEMI.intensity;
+  solids.length=0;solids.push(...keepS);boxes.length=0;boxes.push(...keepB);MG=MAP1;
+})();
+let MAPI=0;
+function setMap(i){
+  const m=MAPS[i];MAPI=i;MAP1.visible=i===0;MAP2.visible=i===1;if(SKY)SKY.visible=i===0;
+  solids.length=0;solids.push(...m.solids);boxes.length=0;boxes.push(...m.boxes);HALF=m.half;CEIL=m.ceil;
+  PICK_PTS.length=0;PICK_PTS.push(...m.pick);
+  scene.environment=m.env;scene.background=m.bg;scene.fog.color.copy(m.fog[0]);scene.fog.near=m.fog[1];scene.fog.far=m.fog[2];
+  sun.intensity=m.sun;sun.castShadow=m.sun>0;HEMI.intensity=m.hemi;L2.forEach(l=>l.intensity=i?l.userData.i:0);
+  needReset=true;
+}
+function updateLamps(t){if(MAPI!==1)return;for(const l of L2)if(l.userData.fl){const on=Math.sin(t*.013)+Math.sin(t*.031)>-.6||Math.random()<.3;l.intensity=on?l.userData.i:.15;l.userData.lamp.visible=on}}   // lâmpada com defeito
+function inBox(x,z,r){for(const o of boxes)if(x>o.minX-r&&x<o.maxX+r&&z>o.minZ-r&&z<o.maxZ+r)return true;return false}
 
 function resolve(p,r){
   for(const o of boxes){
@@ -701,6 +777,13 @@ function closeShop(){
   $('shop').classList.add('hide');
   if(playing&&paused)show('Pausado','O jogo está em pausa.','Continuar',['shopb','saveb','menub']);else $('ov').classList.remove('hide');
 }
+// ---------- bodycam ----------
+// Modo de câmera corporal (tecla C ou botão no menu): câmera no peito, lente olho de peixe e imagem de gravação
+// (shader bcPass no desktop; no celular, filtro CSS), sem mira, com REC, data e hora. Preferência em localStorage.
+let bcYaw=0,bcPitch=0,bcT=0;
+function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0')}catch(e){}
+  if(MAPI!==(v?1:0)){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(v?1:0);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}
+  if(bcPass)bcPass.enabled=v;document.body.classList.toggle('bodycam',v);$('camb').textContent='Modo bodycam: '+(v?'ligado':'desligado');onResize()}
 function showTitle(){
   wantCont=contW>0;
   show('Arena FPS','Dinheiro $'+money+(bestW?'  |  Melhor onda '+bestW:''),wantCont?'Continuar (onda '+(contW+1)+')':'Jogar',['newb','shopb']);
@@ -789,7 +872,7 @@ function makeSoldier(){
 }
 // ---------- itens no mapa (munição e cura) ----------
 // A cada onda surgem caixas de munição e kits médicos em pontos fixos livres. Passar por cima coleta.
-const PICK_PTS=[[-25,-4],[25,-6],[3,-24],[-12,-22],[12,22],[-26,24],[26,24],[-4,1],[7,3]];
+const PICK_PTS=PICK1.slice();   // pontos do mapa atual (setMap troca)
 const PM={
   olive:new THREE.MeshStandardMaterial({color:0x4d5428,roughness:.75,envMapIntensity:.3}),
   strip:new THREE.MeshStandardMaterial({color:0xd8b024,roughness:.6,envMapIntensity:.3}),
@@ -1057,8 +1140,8 @@ function spawnWave(){
   $('wv').textContent='Onda '+wave;
   for(let i=0;i<n;i++){
     let x,z,tries=0;
-    do{x=(Math.random()*2-1)*26;z=(Math.random()*2-1)*26;tries++}
-    while(tries<20&&(Math.hypot(x-P.x,z-P.z)<16));
+    do{x=(Math.random()*2-1)*(HALF-4);z=(Math.random()*2-1)*(HALF-4);tries++}
+    while(tries<40&&(Math.hypot(x-P.x,z-P.z)<HALF*.55||inBox(x,z,.7)));
     const s=SOLD?makeSoldier3D():makeSoldier();
     s.g.position.set(x,0,z);s.g.rotation.order='YXZ';scene.add(s.g);
     const e={g:s.g,j:s.j,mx:s.mx,A:s.A,bones:s.bones,muzzle:s.muzzle,helm:s.helm,gun:s.gun,x,z,ammo:5+Math.floor(Math.random()*4),rl:0,mag:s.gun&&s.gun.getObjectByName('pente'),hp:(3+Math.floor(wave/2))*10,speed:2.2+Math.random()*.8+Math.min(wave*.12,1.6),fire:1+Math.random()*2.5,ph:Math.random()*6,hitT:0,meshes:[]};
@@ -1326,7 +1409,7 @@ function explode(p){
 function updateGrens(dt){
   for(let i=grens.length-1;i>=0;i--){
     const g=grens[i],p=g.m.position,ox=p.x,oz=p.z;
-    g.v.y-=20*dt;p.addScaledVector(g.v,dt);
+    g.v.y-=20*dt;p.addScaledVector(g.v,dt);if(CEIL&&p.y>CEIL-.12){p.y=CEIL-.12;g.v.y=-Math.abs(g.v.y)*.3}
     if(p.y<.09){p.y=.09;g.v.y=-g.v.y*.35;g.v.x*=.65;g.v.z*=.65}
     for(const o of boxes)if(p.x>o.minX-.09&&p.x<o.maxX+.09&&p.z>o.minZ-.09&&p.z<o.maxZ+.09&&p.y<o.h+.09){
       if(oy(o,ox,oz)){p.y=o.h+.09;g.v.y=Math.abs(g.v.y)*.35;g.v.x*=.65;g.v.z*=.65}
@@ -1357,7 +1440,7 @@ function reset(){
   if(!wantCont)startKit();                                          // partida nova (onda 1): volta ao inventário inicial
   hp=100;score=wantCont?contS:0;wave=wantCont?contW:0;wantCont=false;spawning=false;reloading=false;refill();load(eq[1]?1:2);
   pickups.forEach(p=>scene.remove(p.g));pickups.length=0;holes.forEach(h=>scene.remove(h));holes.length=0;dying.forEach(clearRag);dying.length=0;fx.forEach(f=>scene.remove(f.m));fx.length=0;
-  P.x=0;P.z=22;P.y=0;P.vy=0;yaw=0;pitch=0;needReset=false;$('wv').textContent='Onda 1';
+  P.x=MAPS[MAPI].start[0];P.z=MAPS[MAPI].start[1];P.y=0;P.vy=0;yaw=0;pitch=0;needReset=false;$('wv').textContent='Onda 1';
 }
 
 // ---------- atualização ----------
@@ -1379,11 +1462,20 @@ function update(dt){
   if(hmT<=0)$('hm').classList.remove('on');
   if(reloading){rt-=dt;if(RFZ>=0)rt=Math.max(.001,RL*(1-RFZ));if(rt<=0){reloading=false;const tk=Math.min(MAG-ammo,reserve);ammo+=tk;reserve-=tk}}
   if(firing)shoot();
-  camera.position.set(P.x,P.y+1.7+Math.sin(bobT)*.04,P.z);
   shk=Math.max(0,shk-dt*1.6);const sh=shk*shk*.06;   // tremor da explosão
-  camera.rotation.y=yaw+(Math.random()-.5)*sh;camera.rotation.x=pitch+(Math.random()-.5)*sh;camera.rotation.z=(Math.random()-.5)*sh;
+  if(BODY){                                                          // bodycam: no peito, balança mais e acompanha a mira com atraso
+    const a=Math.min(1,dt*11);bcYaw+=(yaw-bcYaw)*a;bcPitch+=(pitch-bcPitch)*a;
+    camera.position.set(P.x+Math.cos(yaw)*.08,P.y+1.45+Math.abs(Math.sin(bobT))*.06,P.z-Math.sin(yaw)*.08);
+    camera.rotation.y=bcYaw+Math.sin(bobT*.5)*.018+(Math.random()-.5)*sh;camera.rotation.x=bcPitch+Math.abs(Math.sin(bobT))*.025+(Math.random()-.5)*sh;
+    camera.rotation.z=Math.sin(bobT*.5)*.035+(yaw-bcYaw)*.6+(Math.random()-.5)*sh;
+  }else{
+    bcYaw=yaw;bcPitch=pitch;
+    camera.position.set(P.x,P.y+1.7+Math.sin(bobT)*.04,P.z);
+    camera.rotation.y=yaw+(Math.random()-.5)*sh;camera.rotation.x=pitch+(Math.random()-.5)*sh;camera.rotation.z=(Math.random()-.5)*sh;
+  }
   const rp=reloading?1-rt/RL:0,tilt=reloading&&!cw.k?reloadPose(rp):(restPose(),0);RS.j=Math.max(0,RS.j-dt*6);
   gun.position.z=-.5+kick*.06+RS.j*.03;gun.position.y=-.24-VMP*.12+VMY+tilt*.06+RS.j*.015+Math.sin(bobT*.5)*.006;gun.position.x=.26-VMP*.1-tilt*.12+Math.cos(bobT*.5)*.01;
+  if(BODY){gun.position.x-=.17;gun.position.y-=.03;gun.position.z-=.05}   // bodycam: arma mais ao centro, à frente do peito
   if(gHold>=0){const c=Math.min(1,gHold/GFULL);gun.position.z+=c*.12;gun.position.y+=c*.07;gun.position.x+=c*.05}   // granada: braço recua enquanto carrega
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
   if(VA)viewArms();
@@ -1543,6 +1635,7 @@ function show(t,p,b,x){
   ['newb','shopb','saveb','menub'].forEach(i=>$(i).classList.toggle('hide',!(x&&x.includes(i))));
   $('ov').classList.toggle('ttl',t==='Arena FPS');$('ov').classList.remove('hide');
 }
+$('camb').addEventListener('click',()=>setBody(!BODY));
 $('play').addEventListener('click',()=>{
   if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
   if(needReset)reset();
@@ -1559,19 +1652,20 @@ function loop(t){
   if(playing&&!paused&&alive)update(dt);
   if(!paused){updateFx(dt);updateDust(dt);updateDrops(dt);updateShots(dt);updateXfx(dt);updateBlood(dt)}
   else if(!playing){
-    yaw+=dt*.12;pitch=0;camera.position.set(0,3.2,22);camera.rotation.set(0,yaw,0);
+    yaw+=dt*.12;pitch=0;camera.position.set(0,3.2,HALF*.73);camera.rotation.set(0,yaw,0);
     gun.position.z=-.5;gun.rotation.set(0,0,0);flash.visible=false;mlight.intensity=0;restPose();
     for(const e of enemies)e.g.position.y=0;
   }
-  updateScope();
-  if(composer){grade.uniforms.time.value=t*.001%100;composer.render(dt)}else renderer.render(scene,camera);
+  updateScope();updateLamps(t);
+  if(BODY&&t-bcT>500){bcT=t;const d=new Date(),z=n=>String(n).padStart(2,'0');$('bct').textContent=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+' '+z(d.getHours())+':'+z(d.getMinutes())+':'+z(d.getSeconds())}
+  if(composer){grade.uniforms.time.value=t*.001%100;if(bcPass)bcPass.uniforms.time.value=t*.001%100;composer.render(dt)}else renderer.render(scene,camera);
 }
 hold('bW',cycle);hold('bS',openShop);hold('bG',throwGren);hold('bZ',toggleScope);
 $('shopb').onclick=openShop;$('sback').onclick=closeShop;$('bInv').onclick=openShop;
 $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;save();$('op').textContent='Jogo salvo.'};
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
-loadSave();load(2);showTitle();loadSoldier();
+loadSave();load(2);setBody(BODY,true);showTitle();loadSoldier();
 if(/[?&]debug/.test(location.search))window.__g={bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console

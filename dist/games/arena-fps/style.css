@@ -88,3 +88,10 @@ body.touch #bInv{display:none}
   .card p{font-size:13px;line-height:1.35;margin:3px 0}
   .card button{margin:8px 3px 0;padding:9px 18px;font-size:15px}
 }
+/* bodycam: texto de gravação, sem mira; no celular (sem o shader) filtro e vinheta em CSS */
+#bc{display:none;position:absolute;left:calc(14px + env(safe-area-inset-left,0px));top:calc(120px + env(safe-area-inset-top,0px));text-align:left;font:700 13px/1.35 ui-monospace,Consolas,monospace;color:#f4f4f4;text-shadow:0 0 3px #000,0 0 1px #000;letter-spacing:.04em;flex-direction:column;align-items:flex-start;pointer-events:none}
+#bc b{display:flex;align-items:center;gap:6px;color:#ff3b30}#bc b i{width:9px;height:9px;border-radius:50%;background:#ff3b30;animation:rec 1s steps(1) infinite}
+@keyframes rec{50%{opacity:0}}
+body.bodycam #bc{display:flex}body.bodycam #cross{display:none}
+body.bodycam:not(.pp) #view canvas{filter:contrast(1.18) saturate(.62) brightness(1.04)}
+body.bodycam:not(.pp) #vig{display:block;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.75) 100%)}
