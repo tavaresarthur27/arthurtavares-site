@@ -57,6 +57,8 @@ body.touch .btn{display:block}
 #gn{font-size:13px;font-weight:700;color:var(--warm)}
 #bG{right:calc(34px + env(safe-area-inset-right,0px));bottom:calc(196px + env(safe-area-inset-bottom,0px));width:56px;height:56px;font-size:11px}
 #bZ{right:calc(100px + env(safe-area-inset-right,0px));bottom:calc(196px + env(safe-area-inset-bottom,0px));width:56px;height:56px;font-size:11px}
+#bC{right:calc(190px + env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));width:56px;height:56px;font-size:10px}
+body.agachado #bC{background:rgba(42,214,255,.35)}
 /* luneta: preto fora do círculo, lente levemente escurecida na borda, retículo fino com traços grossos nas pontas */
 #scope{position:absolute;inset:0;display:none;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 0,transparent calc(min(46vw,46vh) - 10px),rgba(0,0,0,.55) calc(min(46vw,46vh) - 2px),#000 min(46vw,46vh))}
 #scope.on{display:block}
