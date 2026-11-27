@@ -90,7 +90,7 @@ if(PP){
 }
 
 let VMP=0;   // 0 em paisagem, até 1 em retrato estreito
-let BASEFOV=75,BODY=false;try{BODY=localStorage.getItem('arenafps_cam')==='1'}catch(e){}   // BODY: modo bodycam (preferência à parte do save)
+let BASEFOV=75,BODY=false,BMODE=0;try{BMODE=Math.min(2,+localStorage.getItem('arenafps_cam')||0);BODY=BMODE>0}catch(e){}   // BMODE: 0 normal, 1 trincheira, 2 casa (preferência à parte do save)
 function onResize(){
   const w=innerWidth,h=innerHeight;
   renderer.setSize(w,h);
@@ -181,8 +181,9 @@ function ctex(fn){const c=mkC(128);fn(c.getContext('2d'));const t=new THREE.Canv
 const camoT=ctex(g=>{g.fillStyle='#46513a';g.fillRect(0,0,128,128);['#2f3a29','#6b6a4a','#222a1f'].forEach(c=>{g.fillStyle=c;for(let i=0;i<14;i++){g.beginPath();g.ellipse(Math.random()*128,Math.random()*128,8+Math.random()*16,5+Math.random()*10,Math.random()*3,0,6.283);g.fill()}})});
 
 // ---------- mapas ----------
-// MAP1 (arena ao ar livre) e MAP2 (galpão do modo bodycam) ficam na cena; setMap() mostra um e troca colisões, itens e luz.
-const MAP1=new THREE.Group(),MAP2=new THREE.Group();MAP2.visible=false;scene.add(MAP1,MAP2);let MG=MAP1;   // MG: grupo que recebe as peças em addBox
+// MAP1 (arena), MAP2 (trincheira) e MAP3 (casa) — os dois últimos são do modo bodycam — ficam na cena; setMap() mostra um
+// e troca colisões, itens, sol, céu e névoa.
+const MAP1=new THREE.Group(),MAP2=new THREE.Group(),MAP3=new THREE.Group(),MAPG=[MAP1,MAP2,MAP3];MAP2.visible=MAP3.visible=false;scene.add(MAP1,MAP2,MAP3);let MG=MAP1;   // MG: grupo que recebe as peças em addBox
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(60,60),floorM);
 floorM.map.repeat.set(15,15);floorM.normalMap.repeat.set(15,15);
 floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;MAP1.add(floor);
@@ -229,7 +230,7 @@ function bakeFloor(B,H,mesh,m){                                    // B: caixas,
   for(let i=0;i<2;i++){soft(0,-H,2*H,.6,2.2,.75);soft(0,H,2*H,.6,2.2,.75);soft(-H,0,.6,2*H,2.2,.75);soft(H,0,.6,2*H,2.2,.75)}   // paredes
   for(const o of B){const w=o.maxX-o.minX,d=o.maxZ-o.minZ,x=(o.minX+o.maxX)/2,z=(o.minZ+o.maxZ)/2;soft(x,z,w+.3,d+.3,1.6+o.h*.25,.85);soft(x,z,w,d,.5,.9)}
   const t=new THREE.CanvasTexture(c);t.anisotropy=MAXANI;
-  mesh.geometry.setAttribute('uv2',mesh.geometry.attributes.uv);
+  mesh.geometry.setAttribute('uv2',new THREE.PlaneGeometry(1,1).attributes.uv.clone());   // 0–1 no chão inteiro, mesmo se o uv da textura repetir
   m.aoMap=t;m.aoMapIntensity=1;
   m.onBeforeCompile=s=>{s.fragmentShader=s.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n diffuseColor.rgb*=mix(1.,texture2D(aoMap,vUv2).r,.55);')};
   m.needsUpdate=true;
@@ -259,54 +260,160 @@ bakeFloor(boxes,30,floor,floorM);
   }
 })();
 
-// galpão do modo bodycam (MAP2): fechado, à noite, teto a 6 m, luzes fluorescentes (uma piscando), prateleiras de
-// caixotes, contêineres, colunas e um escritório com duas portas. Corredores largos: os inimigos andam em linha reta.
+// ---------- mapas do modo bodycam: trincheira (MAP2) e casa (MAP3), ao ar livre no fim de tarde ----------
+// Sol baixo (9°), luz quente e sombras longas; o céu muda de cor e gera outro ambiente (PMREM) para os reflexos.
+// Inimigos andam em linha reta: trincheiras com passagens largas e casa com portas de 1,4 m.
 const MAPS=[{half:30,ceil:0,start:[0,22],pick:PICK1,solids:solids.slice(),boxes:boxes.slice()}];
-const L2=[];   // luzes do galpão: ficam sempre na cena (intensidade 0 no mapa 1) para não recompilar os shaders na troca
+const SUN2=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-10),THREE.MathUtils.degToRad(212));   // à frente e à esquerda de quem começa (olhando para -z)
+function skyEnv(dir,turb,ray){                                       // ambiente (PMREM) de um céu com o sol em `dir`
+  if(!SKY)return scene.environment;const u=SKY.material.uniforms,o=[u.sunPosition.value.clone(),u.turbidity.value,u.rayleigh.value];
+  u.sunPosition.value.copy(dir);u.turbidity.value=turb;u.rayleigh.value=ray;if(u.uDisk)u.uDisk.value=0;
+  const tmp=new THREE.Scene();tmp.add(SKY);const pm=new THREE.PMREMGenerator(renderer),t=pm.fromScene(tmp).texture;pm.dispose();
+  if(u.uDisk)u.uDisk.value=1;u.sunPosition.value.copy(o[0]);u.turbidity.value=o[1];u.rayleigh.value=o[2];scene.add(SKY);return t;
+}
+const dirtM=mat((g,n)=>{g.fillStyle='#836a4c';g.fillRect(0,0,n,n);                  // terra batida com tufos de capim seco
+  blobs(g,n,90,.03,.12,['#5f4c36','#7d6649','#66533b'],.4);blobs(g,n,140,.005,.02,['#4a3a28','#8a7354'],.35);
+  for(let i=0;i<260;i++){g.strokeStyle='rgba('+(120+Math.random()*50|0)+','+(110+Math.random()*40|0)+',60,.55)';g.lineWidth=n/400;const x=Math.random()*n,y=Math.random()*n;
+    g.beginPath();for(let k=0;k<4;k++){g.moveTo(x,y);g.lineTo(x+(Math.random()-.5)*n*.02,y-n*(.01+Math.random()*.015))}g.stroke()}
+  grain(g,n,22)},4,{roughness:1,envMapIntensity:.5});
+const sandM=mat((g,n)=>{g.fillStyle='#4f4632';g.fillRect(0,0,n,n);const R=4,bh=n/R;    // sacos de areia em fileiras desencontradas
+  for(let r=0;r<R;r++){const off=r%2?n/6:0;for(let c=-1;c<4;c++){const x=c*n/3+off,y=r*bh,b=150+Math.random()*25;
+    g.fillStyle='rgb('+b+','+(b*.86|0)+','+(b*.62|0)+')';g.beginPath();g.ellipse(x+n/6,y+bh/2,n/6-3,bh/2-3,0,0,6.283);g.fill();
+    g.strokeStyle='rgba(60,50,30,.5)';g.lineWidth=n/200;g.beginPath();g.moveTo(x+n/12,y+bh*.3);g.lineTo(x+n/12,y+bh*.7);g.stroke()}}
+  blobs(g,n,60,.01,.05,['#6b5a3c','#3f3524'],.35);grain(g,n,20)},6,{roughness:.95,envMapIntensity:.4});
+const plankM=mat((g,n)=>{const P=7,w=n/P;for(let i=0;i<P;i++){const b=105+Math.random()*30;   // tábuas velhas e acinzentadas
+  g.fillStyle='rgb('+b+','+(b*.9|0)+','+(b*.78|0)+')';g.fillRect(i*w,0,w,n);for(let k=0;k<20;k++){g.fillStyle='rgba(40,32,24,'+(.1+Math.random()*.15)+')';g.fillRect(i*w+Math.random()*w,Math.random()*n,n/500+1,n*(.1+Math.random()*.4))}
+  g.fillStyle='rgba(20,15,10,.7)';g.fillRect(i*w,0,n/180,n)}grain(g,n,20)},6,{roughness:.9,envMapIntensity:.35});
+const roofM=new THREE.MeshStandardMaterial({color:new THREE.Color('#5a3f30').convertSRGBToLinear(),roughness:.8,metalness:.3,envMapIntensity:.4});
+const rustM=new THREE.MeshStandardMaterial({color:new THREE.Color('#6b4630').convertSRGBToLinear(),roughness:.7,metalness:.5,envMapIntensity:.4});
+const barkM=new THREE.MeshStandardMaterial({color:new THREE.Color('#3b3128').convertSRGBToLinear(),roughness:1,envMapIntensity:.3});
+const darkM=new THREE.MeshStandardMaterial({color:0x151412,roughness:.9});
+const CRATER=fxTex(128,(x,n)=>{const g=x.createRadialGradient(n/2,n/2,n*.08,n/2,n/2,n/2);g.addColorStop(0,'rgba(25,20,15,.85)');g.addColorStop(.6,'rgba(45,35,25,.55)');g.addColorStop(1,'rgba(60,50,35,0)');x.fillStyle=g;x.fillRect(0,0,n,n)});
+const CRATG=new THREE.PlaneGeometry(1,1),craterM=new THREE.MeshBasicMaterial({map:CRATER,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,color:new THREE.Color(1,1,1).multiplyScalar(PP?.6:1)});
+const TRUNK=new THREE.CylinderGeometry(.08,.16,1,6),BRANCH=new THREE.CylinderGeometry(.02,.06,1,5);
+function tree(x,z,s,sh){                                             // árvore seca: tronco e galhos tortos
+  const t=new THREE.Group(),h=4.5*s,tr=new THREE.Mesh(TRUNK,barkM);tr.scale.set(s,h,s);tr.position.y=h/2;t.add(tr);
+  for(let i=0;i<5;i++){const b=new THREE.Mesh(BRANCH,barkM),L=(1.2+Math.random()*1.4)*s,a=Math.random()*6.28,e=.5+Math.random()*.6;
+    b.scale.set(s,L,s);b.position.set(Math.cos(a)*Math.sin(e)*L/2,h*(.55+i*.09)+Math.cos(e)*L/2,Math.sin(a)*Math.sin(e)*L/2);b.lookAt(b.position.clone().multiplyScalar(3).setY(b.position.y+Math.cos(e)*L*2));b.rotateX(Math.PI/2);t.add(b)}
+  t.position.set(x,0,z);t.rotation.y=Math.random()*6.28;t.traverse(o=>{if(o.isMesh)o.castShadow=!!sh});MG.add(t);
+}
+function vis(x,y,z,w,h,d,m,t,solid){                                 // peça só visual (não bloqueia o passo); `solid`: para as balas
+  const geo=new THREE.BoxGeometry(w,h,d);if(t)fitUV(geo,w,h,d,t);const o=new THREE.Mesh(geo,m);o.position.set(x,y+h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);if(solid)solids.push(o);return o}
+function ground(H,tile){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
+  const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),dirtM.clone()),uv=fl.geometry.attributes.uv;
+  for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/tile,uv.getY(i)*2*H/tile);fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MG.add(fl);
+  const far=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.MeshStandardMaterial({color:new THREE.Color('#5c4a35').convertSRGBToLinear(),roughness:1}));
+  far.rotation.x=-Math.PI/2;far.position.y=-.03;MG.add(far);return fl;
+}
+function treeRing(H){for(let i=0;i<(isTouch?18:34);i++){const a=i/(isTouch?18:34)*6.28+Math.random()*.15,r=H+6+Math.random()*30;tree(Math.cos(a)*r,Math.sin(a)*r,.8+Math.random()*.8,r<H+14)}}
+function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={half:H,ceil:0,start,pick,solids:solids.slice(),boxes:boxes.slice()}}
 (function(){
-  const H=22,C=6,keepS=solids.slice(),keepB=boxes.slice();solids.length=0;boxes.length=0;MG=MAP2;
-  const contM=(c1,c2)=>mat((g,n)=>{g.fillStyle=c1;g.fillRect(0,0,n,n);                                  // contêiner: chapa ondulada e ferrugem
-    for(let i=0;i<16;i++){g.fillStyle=i%2?c2:'rgba(0,0,0,.18)';g.fillRect(i*n/16,0,n/32,n)}
-    blobs(g,n,40,.01,.06,['#5a3a22','#7a4a2a'],.35);grain(g,n,18)},6,{roughness:.6,metalness:.4,envMapIntensity:.5});
-  const cRed=contM('#7a2a22','rgba(255,255,255,.07)'),cBlue=contM('#24435e','rgba(255,255,255,.07)');
-  const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),floorM.clone());   // mesma textura do chão, com outra oclusão
-  const uv=fl.geometry.attributes.uv;for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/60,uv.getY(i)*2*H/60);   // mesma escala do concreto do mapa 1
-  fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MAP2.add(fl);
-  [[0,-H-.5,2*H+2,1],[0,H+.5,2*H+2,1],[-H-.5,0,1,2*H+2],[H+.5,0,1,2*H+2]].forEach(a=>addBox(a[0],a[1],a[2],a[3],C,conM,3));   // paredes externas
-  const ceil=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),new THREE.MeshStandardMaterial({color:0x2a2c30,roughness:.9,metalness:.3}));
-  ceil.rotation.x=Math.PI/2;ceil.position.y=C;MAP2.add(ceil);solids.push(ceil);
-  for(let i=-H+4;i<H;i+=6){const v=new THREE.Mesh(new THREE.BoxGeometry(2*H,.35,.2),poleM);v.position.set(0,C-.2,i);MAP2.add(v)}   // vigas do teto
-  const B=(x,z,w,d,h,m,t)=>boxes.push(addBox(x,z,w,d,h,m,t));
-  [4,10,16].forEach(x=>B(x,-8,1.4,12,3.2,woodM,1.25));                                         // prateleiras de caixotes
-  B(-6,6,2.6,7,2.7,cRed,2.6);B(14,10,7,2.6,2.7,cBlue,2.6);                                     // contêineres
-  [[-8,-2],[-8,12],[0,6],[8,12],[0,-16],[-14,-2]].forEach(p=>B(p[0],p[1],.6,.6,C,conM,3));    // colunas
-  [[-2,-4,1.2,1.2,1.2],[2,12,1.6,1.2,1],[-14,4,1.2,2.4,1.2],[18,18,2,2,1.5],[-18,16,2,1.2,1.1],[-17,-17,2,1,.8]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],woodM,1.25));
-  [[-18,-11,6,.3,3],[-12,-11,2,.3,3],[-11,-19,.3,4,3],[-11,-12,.3,2,3]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],conM,3));   // escritório (portas em x=-14 e z=-15)
-  bakeFloor(boxes,H,fl,fl.material);
-  const lampM=new THREE.MeshBasicMaterial({color:new THREE.Color(0xeef4ff).multiplyScalar(PP?3:1.4)});
-  [[-12,-14],[-12,6],[0,-6],[0,12],[12,-6],[12,14]].forEach((q,i)=>{
-    const f=new THREE.Mesh(new THREE.BoxGeometry(1.6,.06,.22),lampM);f.position.set(q[0],C-.45,q[1]);MAP2.add(f);
-    const l=new THREE.PointLight(0xdfe8ff,0,20,2);l.position.set(q[0],C-.7,q[1]);l.userData={i:PP?5.5:3,fl:i===0,lamp:f};scene.add(l);L2.push(l);
-  });
-  // reflexos e luz ambiente do galpão: um quarto escuro com painéis claros no teto (o céu do mapa 1 deixaria tudo claro)
-  const room=new THREE.Scene(),rm=new THREE.Mesh(new THREE.BoxGeometry(40,8,40),new THREE.MeshBasicMaterial({color:0x14161a,side:THREE.BackSide}));room.add(rm);
-  for(let i=0;i<4;i++){const pn=new THREE.Mesh(new THREE.PlaneGeometry(4,1),new THREE.MeshBasicMaterial({color:0x8a94a6}));pn.rotation.x=Math.PI/2;pn.position.set(-12+i*8,3.9,0);room.add(pn)}
-  const pm=new THREE.PMREMGenerator(renderer),env=pm.fromScene(room).texture;pm.dispose();
-  MAPS.push({half:H,ceil:C,start:[0,18],pick:[[-18,-18],[-16,-6],[7,-16],[13,-1],[-2,16],[19,4],[-19,19],[7,4],[-4,-12]],
-    solids:solids.slice(),boxes:boxes.slice(),env,bg:new THREE.Color(0x07080a),fog:[new THREE.Color(0x0b0d10),10,46],sun:0,hemi:.04});
-  MAPS[0].env=scene.environment;MAPS[0].bg=scene.background;MAPS[0].fog=[scene.fog.color.clone(),scene.fog.near,scene.fog.far];MAPS[0].sun=sun.intensity;MAPS[0].hemi=HEMI.intensity;
+  const keepS=solids.slice(),keepB=boxes.slice(),B=(x,z,w,d,h,m,t)=>boxes.push(addBox(x,z,w,d,h,m,t));
+  // ----- trincheira: rede de valas de terra (~2 m) numa floresta queimada. O chão do jogo é plano, então as valas são
+  // corredores no nível do chão e o "terreno de cima" são blocos de terra; árvores e troncos caídos ficam em cima deles.
+  solids.length=0;boxes.length=0;MG=MAP2;let H=30;const fl2=ground(H,5);
+  const C=2,N=30,G=[];for(let r=0;r<N;r++)G.push(new Array(N).fill(1));   // grade de 2 m: 1 = terra, 0 = vala
+  const cv=(c0,r0,c1,r1)=>{for(let r=Math.min(r0,r1);r<=Math.max(r0,r1);r++)for(let c=Math.min(c0,c1);c<=Math.max(c0,c1);c++)G[r][c]=0};
+  cv(2,25,8,25);cv(8,23,8,25);cv(8,23,14,23);cv(14,23,14,25);cv(14,25,20,25);cv(20,23,20,25);cv(20,23,27,23);   // linha sul em zigue-zague
+  cv(2,14,9,14);cv(9,12,9,14);cv(9,12,16,12);cv(16,12,16,15);cv(16,15,23,15);cv(23,13,23,15);cv(23,13,27,13);     // linha do meio
+  cv(2,4,10,4);cv(10,4,10,6);cv(10,6,18,6);cv(18,3,18,6);cv(18,3,27,3);                                             // linha norte
+  cv(2,4,2,25);cv(27,3,27,23);cv(5,4,5,14);cv(13,6,13,12);cv(19,15,19,25);cv(23,3,23,7);cv(2,19,4,19);             // valas de ligação
+  cv(22,7,24,9);cv(4,18,6,20);                                                                                      // abrigos mais largos
+  const wx=c=>c*C-H,dirtW=mat((g,n)=>{g.fillStyle='#7a6248';g.fillRect(0,0,n,n);                                   // parede de terra com raízes e pedras
+    blobs(g,n,80,.03,.14,['#6a5440','#8a7055','#5c4936'],.45);blobs(g,n,70,.005,.02,['#3e3226','#a08868'],.5);
+    g.strokeStyle='rgba(50,38,26,.55)';for(let k=0;k<26;k++){g.lineWidth=n/(250+Math.random()*300);g.beginPath();let x=Math.random()*n,y=Math.random()*n;g.moveTo(x,y);for(let q=0;q<6;q++){x+=(Math.random()-.5)*n*.08;y+=n*.03;g.lineTo(x,y)}g.stroke()}
+    grain(g,n,26)},7,{roughness:1,envMapIntensity:.45});
+  const used=G.map(r=>r.map(()=>0));                                 // junta a terra em retângulos (menos caixas para colisão e desenho)
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(!G[r][c]||used[r][c])continue;let w=1;while(c+w<N&&G[r][c+w]&&!used[r][c+w])w++;
+    let h=1;while(r+h<N){let ok=true;for(let k=0;k<w;k++)if(!G[r+h][c+k]||used[r+h][c+k]){ok=false;break}if(!ok)break;h++}
+    for(let a=0;a<h;a++)for(let k=0;k<w;k++)used[r+a][c+k]=1;
+    B(wx(c)+w*C/2,wx(r)+h*C/2,w*C,h*C,1.85+Math.random()*.45,dirtW,1.6)}
+  const lip=new THREE.BoxGeometry(1,1,1);                            // torrões e pedras na borda das valas: quebram a parede reta
+  for(let r=1;r<N-1;r++)for(let c=1;c<N-1;c++)if(!G[r][c])for(const [dc,dr] of[[1,0],[-1,0],[0,1],[0,-1]])if(G[r+dr][c+dc]&&Math.random()<.55){
+    const m=new THREE.Mesh(lip,dirtW),sz=.3+Math.random()*.5,x=wx(c)+C/2+dc*(C/2-.05)+(dr?(Math.random()-.5)*1.4:0),z=wx(r)+C/2+dr*(C/2-.05)+(dc?(Math.random()-.5)*1.4:0);
+    m.scale.set(sz,sz*(.6+Math.random()),sz);m.position.set(x,Math.random()<.5?sz*.3:1.9+Math.random()*.2,z);m.rotation.set(Math.random(),Math.random()*3,Math.random());m.castShadow=m.receiveShadow=true;MG.add(m)}
+  [[3,25,'z'],[8,24,'x'],[16,15,'z'],[27,10,'x'],[13,9,'x'],[19,20,'x']].forEach(([c,r,ax])=>{for(let k=-2;k<=2;k++)   // tábuas de escoramento
+    vis(wx(c)+C/2+(ax==='z'?k*.35:-.97),0,wx(r)+C/2+(ax==='x'?k*.35:-.97),ax==='z'?.3:.06,1.9,ax==='x'?.3:.06,plankM)});
+  [[24,8],[5,19],[11,23]].forEach(([c,r])=>vis(wx(c)+C/2,0,wx(r)+C/2-.6,1.6,.45,.5,sandM,0,true));                   // sacos de areia soltos
+  B(wx(24)+1,wx(9)+1.2,1.2,.8,.9,woodM,1.25);B(wx(5)+.5,wx(18)+.6,1,1,.8,woodM,1.25);                                // caixas nos abrigos
+  // floresta queimada em cima da terra (instanciada: uma malha para todos os troncos e outra para os galhos)
+  const top=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(G[r][c])top.push([c,r]);
+  const TRS=[];for(let k=0;k<(isTouch?70:150);k++){const q=top[Math.random()*top.length|0];TRS.push([wx(q[0])+.2+Math.random()*1.6,wx(q[1])+.2+Math.random()*1.6,2.05])}
+  for(let k=0;k<(isTouch?40:90);k++){const a=Math.random()*6.28,r=H+2+Math.random()*28;TRS.push([Math.cos(a)*r,Math.sin(a)*r,0])}
+  const burnt=new THREE.MeshStandardMaterial({color:new THREE.Color('#5d5349').convertSRGBToLinear(),roughness:1,envMapIntensity:.35});
+  const tr=new THREE.InstancedMesh(new THREE.CylinderGeometry(.06,.14,1,6),burnt,TRS.length),br=new THREE.InstancedMesh(new THREE.CylinderGeometry(.015,.04,1,4),burnt,TRS.length*3);
+  const M4=new THREE.Matrix4(),Q=new THREE.Quaternion(),E=new THREE.Euler(),V=new THREE.Vector3(),S=new THREE.Vector3();
+  TRS.forEach((t,k)=>{const h=9+Math.random()*9,s=.8+Math.random()*.7;E.set((Math.random()-.5)*.06,0,(Math.random()-.5)*.06);Q.setFromEuler(E);
+    tr.setMatrixAt(k,M4.compose(V.set(t[0],t[2]+h/2,t[1]),Q,S.set(s,h,s)));
+    for(let b=0;b<3;b++){const L=.8+Math.random()*1.6,a=Math.random()*6.28,y=t[2]+h*(.55+Math.random()*.4);E.set(Math.cos(a)*1.1,0,Math.sin(a)*1.1);Q.setFromEuler(E);
+      const d=new THREE.Vector3(0,L/2,0).applyQuaternion(Q);br.setMatrixAt(k*3+b,M4.compose(V.set(t[0]+d.x,y+d.y,t[1]+d.z),Q,S.set(1,L,1)))}});
+  tr.castShadow=br.castShadow=true;MG.add(tr,br);
+  const logs=new THREE.InstancedMesh(new THREE.CylinderGeometry(.18,.22,1,7),burnt,isTouch?20:40);   // troncos caídos (alguns por cima da beira)
+  for(let k=0;k<logs.count;k++){const q=top[Math.random()*top.length|0],L=3+Math.random()*5;E.set(Math.PI/2,Math.random()*6.28,(Math.random()-.5)*.3,'YXZ');Q.setFromEuler(E);
+    logs.setMatrixAt(k,M4.compose(V.set(wx(q[0])+1,2.1+Math.random()*.15,wx(q[1])+1),Q,S.set(1,L,1)))}
+  logs.castShadow=logs.receiveShadow=true;MG.add(logs);
+  const pyl=[],P4=(x,y,z)=>pyl.push(new THREE.Vector3(x,y,z));     // torre de energia treliçada ao fundo
+  for(let y=0;y<30;y+=3){const a=4-y*.11,b=4-(y+3)*.11;for(const [sx,sz] of[[1,1],[1,-1],[-1,-1],[-1,1]]){P4(sx*a,y,sz*a);P4(sx*b,y+3,sz*b)}
+    for(const [p,q] of[[[1,1],[1,-1]],[[1,-1],[-1,-1]],[[-1,-1],[-1,1]],[[-1,1],[1,1]]]){P4(p[0]*a,y,p[1]*a);P4(q[0]*b,y+3,q[1]*b);P4(q[0]*a,y,q[1]*a);P4(p[0]*b,y+3,p[1]*b)}}
+  P4(-8,27,0);P4(8,27,0);P4(-6,22,0);P4(6,22,0);
+  const pylon=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pyl),new THREE.LineBasicMaterial({color:0x3a3d40}));pylon.position.set(-18,0,-55);MG.add(pylon);
+  const pk=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(!G[r][c]&&(r+c)%7===0)pk.push([wx(c)+1,wx(r)+1]);
+  mapEnd(1,H,[wx(19)+1,wx(22)+1],pk.sort(()=>Math.random()-.5).slice(0,10),fl2);MAPS[1].flow=true;
+  // ----- casa: casa abandonada com cômodos, portas e janelas, telhado; garagem, carro velho e cerca -----
+  solids.length=0;boxes.length=0;MG=MAP3;H=26;const fl3=ground(H,5);
+  [[0,-H-.15,2*H+.6,.3],[0,H+.15,2*H+.6,.3],[-H-.15,0,.3,2*H+.6],[H+.15,0,.3,2*H+.6]].forEach(a=>addBox(a[0],a[1],a[2],a[3],1.7,plankM,1.5));   // cerca
+  const WH=3,T=.3;
+  // parede alinhada a um eixo, com aberturas {a,b,k:'p' porta | 'j' janela} medidas ao longo dela
+  const wall=(x0,z0,x1,z1,ops)=>{const hz=z0===z1,L=hz?x1-x0:z1-z0,P=(u0,u1,y0,h,col)=>{const c=(u0+u1)/2,w=u1-u0;const x=hz?x0+c:x0,z=hz?z0:z0+c,ww=hz?w:T,dd=hz?T:w;
+      if(col&&y0===0)B(x,z,ww,dd,h,wallM,2.5);else vis(x,y0,z,ww,h,dd,wallM,2.5,true)};
+    let u=0;for(const o of ops.sort((p,q)=>p.a-q.a)){if(o.a>u)P(u,o.a,0,WH,true);if(o.k==='j')P(o.a,o.b,0,1,true);P(o.a,o.b,o.k==='p'?2.2:2.1,WH-(o.k==='p'?2.2:2.1));u=o.b}
+    if(u<L)P(u,L,0,WH,true)};
+  const X0=-7,X1=7,Z0=-9,Z1=1;                                       // casa de 14 × 10 m
+  wall(X0,Z1,X1,Z1,[{a:2,b:3.6,k:'j'},{a:8,b:9.6,k:'p'},{a:10.6,b:12.2,k:'j'}]);   // frente: duas janelas e a porta
+  wall(X0,Z0,X1,Z0,[{a:2.6,b:4,k:'p'},{a:9,b:10.6,k:'j'}]);                         // fundos: porta e janela
+  wall(X0,Z0,X0,Z1,[{a:4,b:5.6,k:'j'}]);wall(X1,Z0,X1,Z1,[{a:3,b:4.6,k:'j'}]);        // laterais com janela
+  wall(-1.5,Z0,-1.5,Z1,[{a:4.2,b:5.6,k:'p'}]);wall(-1.5,-3.5,X1,-3.5,[{a:3.4,b:4.8,k:'p'}]);   // paredes internas: três cômodos
+  const fp=new THREE.Mesh(new THREE.PlaneGeometry(X1-X0,Z1-Z0),plankM);fp.rotation.x=-Math.PI/2;fp.position.set(0,.012,(Z0+Z1)/2);fp.receiveShadow=true;MG.add(fp);   // assoalho
+  vis(0,WH,(Z0+Z1)/2,X1-X0+.8,.18,Z1-Z0+.8,roofM,0,true);                                          // telhado
+  B(3.5,-6.5,1.6,.9,.8,woodM,1.25);B(-4.6,-7.6,2.2,.9,.9,rustM);B(6.2,-1.4,.5,1.6,1.9,plankM,1.5);B(-5.8,-1,1,1,1,woodM,1.25);   // mesa, sofa, estante, caixa
+  // garagem aberta na frente
+  B(14,9.5,.3,6,2.8,plankM,1.5);B(19.85,9.5,.3,6,2.8,plankM,1.5);B(16.9,6.65,6.2,.3,2.8,plankM,1.5);vis(16.9,2.8,9.5,6.6,.15,6.4,roofM,0,true);
+  B(-12,12,4.2,1.8,.9,rustM);vis(-12.3,.9,12,2.2,.6,1.6,rustM,0,true);for(const w of[[-13.4,11.1],[-13.4,12.9],[-10.6,11.1],[-10.6,12.9]])vis(w[0],0,w[1],.6,.6,.25,darkM);   // carro velho
+  [[10,-16,1.2,1.2,1],[-16,-12,1.4,1.4,1.1],[8,16,1.2,1.2,.9],[-20,20,2,1,1.1]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],woodM,1.25));   // tambores e caixas no quintal
+  [[-18,-18],[19,-17],[-21,3],[21,-3],[12,19]].forEach(p=>tree(p[0],p[1],1+Math.random()*.4,true));treeRing(H);
+  mapEnd(2,H,[0,22],[[-18,-6],[18,-8],[0,-20],[-4,-5],[4,-1],[-18,16],[18,18],[10,10],[-10,6]],fl3);
+  const env=skyEnv(SUN2,8,2.6),warm={env,sunDir:SUN2,sunC:0xffa860,sun:PP?2.4:2,hemiS:0xffd2a8,hemiG:0x6a553c,hemi:.5,fog:[new THREE.Color('#d6a070').convertSRGBToLinear(),30,170],turb:8,ray:2.6};
+  Object.assign(MAPS[2],warm);MAPS[2].flow=true;
+  const SUN3=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-34),THREE.MathUtils.degToRad(205));   // trincheira: sol forte, céu limpo (como a foto de referência)
+  Object.assign(MAPS[1],{env:skyEnv(SUN3,2.2,1),sunDir:SUN3,sunC:0xfff0dc,sun:PP?2.6:2.1,hemiS:0xd6e4ff,hemiG:0x6a5640,hemi:.38,fog:[new THREE.Color('#b9c4cf').convertSRGBToLinear(),40,190],turb:2.2,ray:1});
+  Object.assign(MAPS[0],{env:scene.environment,sunDir:SUN.clone(),sunC:0xffe9cc,sun:sun.intensity,hemiS:0xcfe0ff,hemiG:0x7a6248,hemi:HEMI.intensity,fog:[scene.fog.color.clone(),scene.fog.near,scene.fog.far],turb:2.5,ray:1.2});
   solids.length=0;solids.push(...keepS);boxes.length=0;boxes.push(...keepB);MG=MAP1;
 })();
 let MAPI=0;
 function setMap(i){
-  const m=MAPS[i];MAPI=i;MAP1.visible=i===0;MAP2.visible=i===1;if(SKY)SKY.visible=i===0;
+  const m=MAPS[i];MAPI=i;MAPG.forEach((g,k)=>g.visible=k===i);
   solids.length=0;solids.push(...m.solids);boxes.length=0;boxes.push(...m.boxes);HALF=m.half;CEIL=m.ceil;
   PICK_PTS.length=0;PICK_PTS.push(...m.pick);
-  scene.environment=m.env;scene.background=m.bg;scene.fog.color.copy(m.fog[0]);scene.fog.near=m.fog[1];scene.fog.far=m.fog[2];
-  sun.intensity=m.sun;sun.castShadow=m.sun>0;HEMI.intensity=m.hemi;L2.forEach(l=>l.intensity=i?l.userData.i:0);
+  scene.environment=m.env;scene.fog.color.copy(m.fog[0]);scene.fog.near=m.fog[1];scene.fog.far=m.fog[2];
+  if(SKY){const u=SKY.material.uniforms;u.sunPosition.value.copy(m.sunDir);u.turbidity.value=m.turb;u.rayleigh.value=m.ray}
+  sun.position.copy(m.sunDir).multiplyScalar(50);sun.color.set(m.sunC);sun.intensity=m.sun;HEMI.color.set(m.hemiS);HEMI.groundColor.set(m.hemiG);HEMI.intensity=m.hemi;
   needReset=true;
 }
-function updateLamps(t){if(MAPI!==1)return;for(const l of L2)if(l.userData.fl){const on=Math.sin(t*.013)+Math.sin(t*.031)>-.6||Math.random()<.3;l.intensity=on?l.userData.i:.15;l.userData.lamp.visible=on}}   // lâmpada com defeito
+// campo de direção: BFS numa grade de 1 m a partir do jogador (refeito a cada 0,25 s, só nos mapas com `flow`).
+// Inimigo que não enxerga o jogador anda para a célula vizinha mais perto dele: segue as valas e as portas.
+const FF={t:0,key:'',n:0,H:0,d:null,wk:null,q:null};
+function flowUpdate(dt){const m=MAPS[MAPI];if(!m.flow)return;FF.t-=dt;if(FF.t>0)return;FF.t=.25;
+  const H=HALF,n=Math.ceil(2*H),key=MAPI+':'+n;
+  if(FF.key!==key){FF.key=key;FF.n=n;FF.H=H;FF.d=new Int16Array(n*n);FF.q=new Int32Array(n*n);FF.wk=new Uint8Array(n*n);
+    for(let j=0;j<n;j++)for(let i=0;i<n;i++)FF.wk[j*n+i]=inBox(i-H+.5,j-H+.5,.45)?0:1}
+  const d=FF.d,q=FF.q,wk=FF.wk;d.fill(-1);const pi=Math.max(0,Math.min(n-1,Math.floor(P.x+H))),pj=Math.max(0,Math.min(n-1,Math.floor(P.z+H)));
+  let h=0,t=0;q[t++]=pj*n+pi;d[pj*n+pi]=0;
+  while(h<t){const c=q[h++],i=c%n,j=(c-i)/n;for(const [a,b] of[[1,0],[-1,0],[0,1],[0,-1]]){const x=i+a,y=j+b;if(x<0||y<0||x>=n||y>=n)continue;const k=y*n+x;if(d[k]<0&&wk[k]){d[k]=d[c]+1;q[t++]=k}}}}
+function flowDir(x,z){if(!FF.d||FF.key!==MAPI+':'+Math.ceil(2*HALF))return null;const n=FF.n,H=FF.H,i=Math.floor(x+H),j=Math.floor(z+H);
+  let best=null,bd=1e9;for(let b=-1;b<=1;b++)for(let a=-1;a<=1;a++){if(!a&&!b)continue;const X=i+a,Y=j+b;if(X<0||Y<0||X>=n||Y>=n)continue;const v=FF.d[Y*n+X];
+    if(v>=0&&v<bd&&(!a||!b||(FF.wk[j*n+X]&&FF.wk[Y*n+i]))){bd=v;best=[X-H+.5-x,Y-H+.5-z]}}   // diagonal só se as duas laterais estiverem livres
+  if(!best)return null;const l=Math.hypot(best[0],best[1])||1;return[best[0]/l,best[1]/l]}
+function seeLine(ax,az,bx,bz){const L=Math.hypot(bx-ax,bz-az),n=Math.ceil(L/.5);for(let k=1;k<n;k++){const t=k/n;if(inBox(ax+(bx-ax)*t,az+(bz-az)*t,.15))return false}return true}
 function inBox(x,z,r){for(const o of boxes)if(x>o.minX-r&&x<o.maxX+r&&z>o.minZ-r&&z<o.maxZ+r)return true;return false}
 
 function resolve(p,r){
@@ -818,9 +925,9 @@ function faceBlur(){
   for(let i=nb;i<BXL.length;i++)if(BXL[i].style.display!=='none')BXL[i].style.display='none';
   if(bcPass)bcPass.uniforms.nf.value=nf;
 }
-function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0')}catch(e){}
-  if(MAPI!==(v?1:0)){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(v?1:0);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}
-  if(bcPass)bcPass.enabled=v;document.body.classList.toggle('bodycam',v);$('camb').textContent='Modo bodycam: '+(v?'ligado':'desligado');onResize()}
+function setBody(mode,boot){BMODE=mode;const v=BODY=mode>0;try{localStorage.setItem('arenafps_cam',String(mode))}catch(e){}
+  if(MAPI!==mode){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(mode);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}
+  if(bcPass)bcPass.enabled=v;document.body.classList.toggle('bodycam',v);$('camb').textContent=['Modo bodycam: desligado','Bodycam: trincheira','Bodycam: casa'][mode];onResize()}
 function showTitle(){
   wantCont=contW>0;
   show('Arena FPS','Dinheiro $'+money+(bestW?'  |  Melhor onda '+bestW:'')+(location.protocol==='file:'?'  |  Aberto direto do arquivo: soldados e armas 3D não carregam. Abra pelo jogar.bat.':''),wantCont?'Continuar (onda '+(contW+1)+')':'Jogar',['newb','shopb']);
@@ -1559,12 +1666,15 @@ function update(dt){
   if(spawning){wt-=dt;if(wt<=0&&!SOLDW){spawning=false;wave++;spawnWave()}}
 
   // inimigos
+  flowUpdate(dt);
   for(const e of enemies){
     const dx=P.x-e.x,dz=P.z-e.z,d=Math.hypot(dx,dz)||1;
     e.ph+=dt;
     let vx=0,vz=0;
-    if(d>9){vx=dx/d;vz=dz/d}else if(d<5){vx=-dx/d;vz=-dz/d}
-    vx+=-dz/d*Math.sin(e.ph*.8)*.8;vz+=dx/d*Math.sin(e.ph*.8)*.8;
+    const fd=MAPS[MAPI].flow&&!seeLine(e.x,e.z,P.x,P.z)?flowDir(e.x,e.z):null;   // sem ver o jogador: segue as valas/portas
+    if(fd){vx=fd[0];vz=fd[1]}
+    else{if(d>9){vx=dx/d;vz=dz/d}else if(d<5){vx=-dx/d;vz=-dz/d}
+    vx+=-dz/d*Math.sin(e.ph*.8)*.8;vz+=dx/d*Math.sin(e.ph*.8)*.8}
     let slow=1;
     if(e.A&&e.A.crouch){                                             // 3D: às vezes avança agachado (mais devagar)
       e.cr=(e.cr||0)-dt;if(e.cr<0){e.crouch=!e.crouch&&Math.random()<.4;e.cr=2+Math.random()*4}
@@ -1703,7 +1813,7 @@ function show(t,p,b,x){
   ['newb','shopb','saveb','menub'].forEach(i=>$(i).classList.toggle('hide',!(x&&x.includes(i))));
   $('ov').classList.toggle('ttl',t==='Arena FPS');$('ov').classList.remove('hide');
 }
-$('camb').addEventListener('click',()=>setBody(!BODY));
+$('camb').addEventListener('click',()=>setBody((BMODE+1)%3));   // desligado → trincheira → casa
 $('play').addEventListener('click',()=>{
   if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
   if(needReset)reset();
@@ -1724,7 +1834,7 @@ function loop(t){
     gun.position.z=-.5;gun.rotation.set(0,0,0);flash.visible=false;mlight.intensity=0;restPose();
     for(const e of enemies)e.g.position.y=0;
   }
-  updateScope();updateLamps(t);faceBlur();
+  updateScope();faceBlur();
   if(BODY&&t-bcT>500){bcT=t;const d=new Date(),z=n=>String(n).padStart(2,'0');$('bct').textContent=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+' '+z(d.getHours())+':'+z(d.getMinutes())+':'+z(d.getSeconds())}
   if(composer){grade.uniforms.time.value=t*.001%100;if(bcPass)bcPass.uniforms.time.value=t*.001%100;composer.render(dt)}else renderer.render(scene,camera);
 }
@@ -1733,8 +1843,8 @@ $('shopb').onclick=openShop;$('sback').onclick=closeShop;$('bInv').onclick=openS
 $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;save();$('op').textContent='Jogo salvo.'};
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
-loadSave();load(2);setBody(BODY,true);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+loadSave();load(2);setBody(BMODE,true);showTitle();loadSoldier();
+if(/[?&]debug/.test(location.search))window.__g={ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
