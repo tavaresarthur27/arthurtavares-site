@@ -69,15 +69,15 @@ if(PP){
   fxaa=new THREE.ShaderPass(THREE.FXAAShader);composer.addPass(fxaa);
   // bodycam: lente olho de peixe (barril), aberração cromática, cor lavada e fria, contraste alto, ruído e linhas
   bcPass=new THREE.ShaderPass({
-    uniforms:{tDiffuse:{value:null},time:{value:0},faces:{value:[0,1,2,3,4,5,6,7].map(()=>new THREE.Vector4())},nf:{value:0}},
+    uniforms:{tDiffuse:{value:null},time:{value:0},faces:{value:Array.from({length:16},()=>new THREE.Vector4())},nf:{value:0}},
     vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
     fragmentShader:[
-      'uniform sampler2D tDiffuse;uniform float time;uniform vec4 faces[8];uniform int nf;varying vec2 vUv;',
+      'uniform sampler2D tDiffuse;uniform float time;uniform vec4 faces[16];uniform int nf;varying vec2 vUv;',
       'float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
       'void main(){vec2 p=vUv-.5;float r2=dot(p*vec2(1.6,1.),p*vec2(1.6,1.));',
       ' vec2 q=p*(1.+.32*r2)/(1.+.32*.5*1.64);',                                    // barril: bordas comprimidas, cantos ainda cobertos
       ' vec2 c=q*r2*.018,u=q+.5;',
-      ' for(int i=0;i<8;i++){if(i>=nf)break;vec4 F=faces[i];vec2 d=(u-F.xy)/F.zw;if(dot(d,d)<1.){vec2 bs=F.zw*.4;u=(floor((u-F.xy)/bs)+.5)*bs+F.xy;c=vec2(0.);}}',   // rosto: mosaico
+      ' for(int i=0;i<16;i++){if(i>=nf)break;vec4 F=faces[i];vec2 d=(u-F.xy)/F.zw;if(dot(d,d)<1.){vec2 bs=F.zw*.4;u=(floor((u-F.xy)/bs)+.5)*bs+F.xy;c=vec2(0.);}}',   // rosto: mosaico
       ' vec3 col=vec3(texture2D(tDiffuse,u+c).r,texture2D(tDiffuse,u).g,texture2D(tDiffuse,u-c).b);',
       ' float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,.62);',             // cor lavada
       ' col=(col-.5)*1.18+.5;col*=vec3(.94,1.,1.04);',                                // contraste e tom frio
@@ -759,8 +759,9 @@ function updateDrops(dt){
       if(p.y<fy){p.y=fy;if(Math.abs(d.v.y)<1.3){d.rest=true;d.m.rotation.set(d.rx!==undefined?d.rx:Math.PI/2,d.m.rotation.y,d.rz||0);clk(240,.025)}
         else{d.v.y=-d.v.y*.3;d.v.x*=.5;d.v.z*=.5;d.w.multiplyScalar(.5);clk(330,.035)}}
     }
-    if(d.t>12){scene.remove(d.m);drops.splice(i,1)}
+    if(d.t>12&&!BODY){scene.remove(d.m);drops.splice(i,1)}   // no modo bodycam, armas e capacetes caídos ficam junto dos corpos
   }
+  while(BODY&&drops.length>40){scene.remove(drops[0].m);drops.shift()}
 }
 function restPose(){
   const base=cw&&!cw.k;
@@ -905,16 +906,17 @@ function faceBlur(){
     for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(!h)continue;
       const pts=e.meshes.map(o=>o.getWorldPosition(new THREE.Vector3()));pts.push(new THREE.Vector3(e.x,0,e.z));
       const hp=h.getWorldPosition(new THREE.Vector3());pts.push(hp.clone().setY(hp.y+.16));tg.push([hp,pts])}
-    for(const d of dying)if(d.t<5&&d.p.H){const pts=[];for(const k in d.p)pts.push(d.p[k].c);tg.push([d.p.H.c,pts])}
+    for(const d of dying)if(d.p.H){const pts=[];for(const k in d.p)pts.push(d.p[k].c);tg.push([d.p.H.c,pts,d.t<5])}   // corpo antigo: só o rosto, sem caixa
     const o={};
-    for(const [hp,pts] of tg){
+    for(const [hp,pts,box=true] of tg){
       const dist=hp.distanceTo(cp);if(dist<.4||dist>70)continue;
       _fv.copy(hp).project(camera);if(_fv.z>1||Math.abs(_fv.x)>1.3||Math.abs(_fv.y)>1.3)continue;
       _fr.set(cp,_fd.subVectors(hp,cp).normalize());_fr.far=dist-.3;if(_fr.intersectObjects(solids,false).length)continue;   // cabeça escondida: nada
       const c=scr(hp,o),r0=Math.max(9,.19*f/dist),r=r0*o.s;
-      if(lens&&nf<8)bcPass.uniforms.faces.value[nf++].set(o.u+.5,o.v+.5,r0/W,r0*1.15/H);   // mosaico no shader (uv antes da lente)
+      if(lens&&nf<16)bcPass.uniforms.faces.value[nf++].set(o.u+.5,o.v+.5,r0/W,r0*1.15/H);   // mosaico no shader (uv antes da lente)
       else{let el=FBL[n];if(!el){el=document.createElement('i');el.className='f';$('fblur').appendChild(el);FBL.push(el)}   // sem shader: borrão no rosto
         el.style.cssText='display:block;left:'+(c[0]-r)+'px;top:'+(c[1]-r*1.15)+'px;width:'+(2*r)+'px;height:'+(2.3*r)+'px';n++}
+      if(!box)continue;
       let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const q of pts){const a=scr(q);if(!a)continue;if(a[0]<x0)x0=a[0];if(a[0]>x1)x1=a[0];if(a[1]<y0)y0=a[1];if(a[1]>y1)y1=a[1]}
       const pad=Math.max(4,r*.45);x0-=pad;x1+=pad;y0-=pad;y1+=pad;
       let bx=BXL[nb];if(!bx){bx=document.createElement('b');$('fblur').appendChild(bx);BXL.push(bx)}   // caixa verde em volta do corpo
@@ -1394,6 +1396,7 @@ const _rmi=new THREE.Matrix4();
 function poseRag(d){for(const b of d.bones){rFrame(d,b.A,b.B,b.s,_rm).multiply(b.off);
   if(b.bone){b.o.parent.updateWorldMatrix(true,false);_rm.premultiply(_rmi.copy(b.o.parent.matrixWorld).invert())}   // osso: mundo → local do pai
   _rm.decompose(b.o.position,b.o.quaternion,b.o.scale)}}
+const BODYMAX=30;   // corpos que ficam no chão no modo bodycam (os mais antigos saem)
 function clearRag(d){d.bones.forEach(b=>{if(!b.bone)scene.remove(b.o)});if(d.root)scene.remove(d.root)}
 const dGeo=new THREE.BoxGeometry(1,1,1),sGeo=new THREE.SphereGeometry(1,10,8);
 const dm=[0x4f5d3e,0x2b2e2a,0xc59a7c,0x6b7280,0xff8a3d].map(c=>new THREE.MeshBasicMaterial({color:c}));
@@ -1415,12 +1418,13 @@ function boom(pos,col,sz,life,op,rise){
 }
 function updateFx(dt){
   for(let i=dying.length-1;i>=0;i--){                                // ragdoll: física por 4 s, depois afunda e some
-    const d=dying[i];d.t+=dt;
+    const d=dying[i];d.t+=dt;                                        // (no modo bodycam o corpo fica no chão: até BODYMAX corpos)
     if(d.t<4){d.acc+=dt;let n=0;while(d.acc>=RDT&&n++<5){stepRag(d);d.acc-=RDT}}
-    else for(const k in d.p)d.p[k].c.y-=dt*.3;
-    poseRag(d);
-    if(d.t>5.5){clearRag(d);dying.splice(i,1)}
+    else if(!BODY)for(const k in d.p)d.p[k].c.y-=dt*.3;
+    if(d.t<4.3||!BODY)poseRag(d);                                    // parado: não precisa recalcular a pose
+    if(d.t>5.5&&!BODY){clearRag(d);dying.splice(i,1)}
   }
+  while(BODY&&dying.length>BODYMAX){clearRag(dying[0]);dying.shift()}
   for(let i=fx.length-1;i>=0;i--){
     const f=fx[i];f.life-=dt;const t=Math.max(0,f.life/f.max);
     if(f.f){f.m.scale.setScalar((.4+(1-t)*2.4)*f.s);f.m.material.opacity=t*f.op;f.m.position.addScaledVector(f.v,dt)}
@@ -1844,7 +1848,7 @@ $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);setBody(BMODE,true);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={mortos:()=>dying.map(d=>[+d.t.toFixed(1),+(d.p.H?d.p.H.c.y:0).toFixed(2)]),ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
