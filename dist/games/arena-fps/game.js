@@ -1325,13 +1325,21 @@ function enemyReload(e){
   const x=(L1*L1-L2*L2+d*d)/(2*d),h=Math.sqrt(Math.max(0,L1*L1-x*x)),n=pole.sub(a);n.addScaledVector(dir,-n.dot(dir)).normalize();
   aimBone(up,b,a.clone().addScaledVector(dir,x).addScaledVector(n,h));aimBone(lo,ha.getWorldPosition(new THREE.Vector3()),a.clone().addScaledVector(dir,d));
 }
-function enemyShoot(e){
+// inimigo só atira se enxergar o jogador: raio dos olhos dele até o peito (ou, se o peito estiver coberto, até a cabeça)
+// contra paredes, caixas, telhados e valas. Sem isso, tiros de trás das paredes denunciavam onde ele estava.
+const _sr=new THREE.Raycaster(),_so=new THREE.Vector3(),_sd=new THREE.Vector3();
+function sightTo(e,y){const ey=1.5-.4*(e.wc||0);_so.set(e.x,ey,e.z);_sd.set(P.x-e.x,y-ey,P.z-e.z);const L=_sd.length();if(L<.5)return true;
+  _sd.multiplyScalar(1/L);_sr.set(_so,_sd);_sr.far=L-.35;return !_sr.intersectObjects(solids,false).length}
+function canSee(e){const chest=P.y+1.3-.5*crK,head=camera.position.y-.05;e.aimY=sightTo(e,chest)?chest:sightTo(e,head)?head:null;return e.aimY!==null}
+let ESHOT=0;   // tiros dos inimigos (só para o ?debug)
+function enemyShoot(e){ESHOT++;
   const m=makeTracer(2,.03);
   const ry=e.g.rotation.y,cs=Math.cos(ry),sn=Math.sin(ry);let mx=e.x+.14*cs+.98*sn,my=1.39,mz=e.z-.14*sn+.98*cs;
   if(e.muzzle){const w=e.muzzle.getWorldPosition(new THREE.Vector3());mx=w.x;my=w.y;mz=w.z}
   if(e.A&&e.A.fire)e.A.fire.reset().play();                          // coice do tiro (só no soldado tático)   // boca do fuzil do modelo 3D
   m.position.set(mx,my,mz);scene.add(m);
-  const tx=P.x+(Math.random()-.5)*1.4,ty=P.y+1.3-.5*crK+(Math.random()-.5)*.6,tz=P.z+(Math.random()-.5)*1.4;
+  const head=e.aimY!=null&&e.aimY>P.y+1.35-.5*crK,ty=(e.aimY!=null?e.aimY:P.y+1.3-.5*crK)+(Math.random()-.5)*(head?.25:.6);   // só a cabeça à vista: mira nela
+  const tx=P.x+(Math.random()-.5)*1.4,tz=P.z+(Math.random()-.5)*1.4;
   const v=new THREE.Vector3(tx-mx,ty-my,tz-mz).normalize().multiplyScalar(55+Math.min(wave,8)*2);   // bala de verdade é rápida: traçante a ~60 m/s
   m.lookAt(m.position.clone().add(v));eflash(m.position,v.clone().normalize());sparks(m.position,v.clone().normalize(),3,6);
   shots.push({m,v,life:4});gunshot(.12);
@@ -1703,14 +1711,14 @@ function update(dt){
       A.walk.setEffectiveWeight(m*(1-c)*(1-b));A.idle.setEffectiveWeight((1-k)*(1-(e.ws||0)));   // pesos das pernas somam 1
       if(A.back)A.back.setEffectiveWeight(m*(1-c)*b);if(A.crouch)A.crouch.setEffectiveWeight(m*c);
       A.walk.timeScale=Math.max(.5,sp/3.2);
-      if(e.rl>0)e.rl-=dt;else{e.fire-=dt;if(e.fire<=0&&d<36){enemyShoot(e);e.fire=1.4+Math.random()*2;if(--e.ammo<=0){e.rl=ERL;e.ammo=5+Math.floor(Math.random()*4);e.dr=0}}}
+      if(e.rl>0)e.rl-=dt;else{e.fire-=dt;if(e.fire<=0&&d<36){if(canSee(e)){enemyShoot(e);e.fire=1.4+Math.random()*2;if(--e.ammo<=0){e.rl=ERL;e.ammo=5+Math.floor(Math.random()*4);e.dr=0}}else e.fire=.25}}
       if(e.hitT>0){if(A.hit&&!e.hitA)A.hit.reset().play();e.hitA=1;e.hitT-=dt;if(!A.hit)e.g.rotation.x=-e.hitT*.6}else{e.hitA=0;e.g.rotation.x=0}   // reação ao tiro
       e.mx.update(dt);enemyReload(e);
       continue;
     }
     const sw=Math.sin(e.ph*7),j=e.j;j.hipL.rotation.x=sw*.55;j.hipR.rotation.x=-sw*.55;
     j.kneeL.rotation.x=Math.max(0,Math.sin(e.ph*7+1.6))*.9;j.kneeR.rotation.x=Math.max(0,-Math.sin(e.ph*7+1.6))*.9;j.torso.rotation.y=sw*.06;
-    e.fire-=dt;if(e.fire<=0&&d<36){enemyShoot(e);e.fire=1.4+Math.random()*2}
+    e.fire-=dt;if(e.fire<=0&&d<36){if(canSee(e)){enemyShoot(e);e.fire=1.4+Math.random()*2}else e.fire=.25}
     if(e.hitT>0){e.hitT-=dt;j.torso.rotation.x=-e.hitT*1.6}else j.torso.rotation.x=0;   // tranco ao levar tiro
   }
   // projéteis
@@ -1853,7 +1861,7 @@ $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);setBody(BMODE,true);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={mov:()=>({y:+camera.position.y.toFixed(2),crouch,crK:+crK.toFixed(2),spK:+spK.toFixed(2),x:+P.x.toFixed(2),z:+P.z.toFixed(2)}),mortos:()=>dying.map(d=>[+d.t.toFixed(1),+(d.p.H?d.p.H.c.y:0).toFixed(2)]),ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={tiros:()=>ESHOT,mov:()=>({y:+camera.position.y.toFixed(2),crouch,crK:+crK.toFixed(2),spK:+spK.toFixed(2),x:+P.x.toFixed(2),z:+P.z.toFixed(2)}),mortos:()=>dying.map(d=>[+d.t.toFixed(1),+(d.p.H?d.p.H.c.y:0).toFixed(2)]),ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
