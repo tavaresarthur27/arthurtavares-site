@@ -441,7 +441,7 @@ let MAG=15,RL=1.1;
 const P={x:0,y:0,z:22,vy:0};
 let yaw=0,pitch=0,hp=100,ammo=MAG,reserve=45,score=0,wave=0,wt=0,spawning=false,moveAmt=0,stepT=0;
 let armor=0,gren=0,grenCD=0;const GMAX=3,GR=6;
-let scopeLv=0,swing=0,prevSlot=2,gHold=-1,cur=2,money=800,bestW=0,contW=0,contS=0,wantCont=false,cw=null,own={glock:1,knife:1},st={},eq={1:null,2:'glock',3:'knife'};
+let scopeLv=0,ads=false,adsK=0,swing=0,prevSlot=2,gHold=-1,cur=2,money=800,bestW=0,contW=0,contS=0,wantCont=false,cw=null,own={glock:1,knife:1},st={},eq={1:null,2:'glock',3:'knife'};
 // ---------- armas ----------
 const WP={};
 [
@@ -684,7 +684,7 @@ function reloadPose(p){                                              // devolve 
   return tilt;
 }
 function stash(){const id=eq[cur];if(id&&st[id]){st[id].a=ammo;st[id].r=reserve}}
-function load(s){cur=s;scopeLv=0;const id=s===4?'gren':eq[s],w=WP[id],q=st[id]||{a:0,r:0};gHold=-1;cw=w;ammo=q.a;reserve=q.r;MAG=w.mag;RL=w.rl;reloading=false;cool=.3;firing=false;buildGun(w)}
+function load(s){cur=s;scopeLv=0;if(isTouch)ads=false;const id=s===4?'gren':eq[s],w=WP[id],q=st[id]||{a:0,r:0};gHold=-1;cw=w;ammo=q.a;reserve=q.r;MAG=w.mag;RL=w.rl;reloading=false;cool=.3;firing=false;buildGun(w)}
 const hasSlot=s=>s===4?gren>0:!!eq[s];
 function equip(s){if(s===4&&gren<=0){banner('Sem granadas: compre na loja (B)');return}if(!eq[s]&&s!==4){banner('Sem arma primária: abra a loja (B)');return}if(cur!==4)prevSlot=cur;stash();load(s)}
 function cycle(d){d=d===-1?-1:1;for(let i=1;i<=4;i++){const s=(cur-1+i*d+12)%4+1;if(hasSlot(s)){equip(s);return}}}   // d=-1 volta (scroll para cima)
@@ -786,7 +786,7 @@ function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0
   if(bcPass)bcPass.enabled=v;document.body.classList.toggle('bodycam',v);$('camb').textContent='Modo bodycam: '+(v?'ligado':'desligado');onResize()}
 function showTitle(){
   wantCont=contW>0;
-  show('Arena FPS','Dinheiro $'+money+(bestW?'  |  Melhor onda '+bestW:''),wantCont?'Continuar (onda '+(contW+1)+')':'Jogar',['newb','shopb']);
+  show('Arena FPS','Dinheiro $'+money+(bestW?'  |  Melhor onda '+bestW:'')+(location.protocol==='file:'?'  |  Aberto direto do arquivo: soldados e armas 3D não carregam. Abra pelo jogar.bat.':''),wantCont?'Continuar (onda '+(contW+1)+')':'Jogar',['newb','shopb']);
 }
 let alive=false,playing=false,paused=false,needReset=true,reloading=false,rt=0,cool=0,kick=0,flashT=0,hmT=0,dmgA=0,bobT=0;
 const enemies=[],shots=[];
@@ -956,7 +956,7 @@ function makeVArms(){
   camera.updateMatrixWorld(true);
   const sh=camera.worldToLocal(B.RightArm.getWorldPosition(new THREE.Vector3()));r.position.add(VSH.clone().sub(sh));
   gl.visible=sl.visible=false;                                       // esconde as mãos procedurais
-  return {r,B};
+  return {r,B,base:r.position.clone()};
 }
 const _ia=new THREE.Vector3(),_ib=new THREE.Vector3(),_it=new THREE.Vector3(),_iq=new THREE.Quaternion(),_iw=new THREE.Quaternion(),_ip=new THREE.Quaternion();
 function aimBone(bone,childNow,target){                               // gira o osso para o filho ir na direção do alvo
@@ -996,7 +996,10 @@ const _ev=new THREE.Euler();
 function gripOf(s){
   if(s==='L'&&reloading&&mags.length&&cw.n===1&&RS.p>.12&&RS.p<.8)return GRIP.M;
   if(cw.x2&&s==='L'){const r=GRIP.p.R;return{o:[-r.o[0],r.o[1],r.o[2]],f:[-r.f[0],r.f[1],r.f[2]],t:[-r.t[0],r.t[1],r.t[2]],c:r.c,th:r.th,tb:r.tb}}   // duas pistolas: esquerda espelha a direita
-  return GRIP[cw.k?'k':cw.cat==='p'?'p':'r'][s];
+  const g=GRIP[cw.k?'k':cw.cat==='p'?'p':'r'][s];
+  if(adsK>.001&&cw.cat==='p'){const F=s==='R'?[0,.5,-.87]:[.3,.45,-.84],k=adsK;   // mirando: pulso abaixo do cabo (antebraço sai por baixo, fora da linha de visão)
+    return Object.assign({},g,{f:g.f.map((v,i)=>v+(F[i]-v)*k),o:[g.o[0],g.o[1]+.04*k,g.o[2]+.01*k]})}   // e a mão sobe no cabo
+  return g;
 }
 function curlHand(s,g){                                               // fecha os dedos em volta do cabo
   const B=VA.B,ix=B[s+'HandIndex1'],meta=ix&&ix.position.y<.6*B[s+'HandMiddle1'].position.y;   // meta: rig em que Index1 é o osso da palma (soldado russo, mão direita)
@@ -1008,14 +1011,16 @@ function curlHand(s,g){                                               // fecha o
   for(let i=2;i<=3;i++){const b=B[s+'HandThumb'+i];if(b)b.quaternion.setFromEuler(_ev.set(g.th[i-1],0,0))}
 }
 function viewArms(){
+  VA.r.position.copy(VA.base);VA.r.position.y-=.12*adsK;VA.r.position.z-=.07*adsK;   // mirando com a pistola: ombros mais baixos, o braço vem de baixo e não tampa a arma
   camera.updateMatrixWorld(true);gun.updateMatrixWorld(true);
   const D=v=>new THREE.Vector3(v[0],v[1],v[2]).normalize().transformDirection(gun.matrixWorld);
   const B=VA.B,hl=s=>B[s+'Hand'].getWorldPosition(new THREE.Vector3()).distanceTo(B[s+'HandMiddle1'].getWorldPosition(new THREE.Vector3()));   // tamanho real da mão
   const wrist=(h,g,s)=>gun.localToWorld(h.position.clone().add(new THREE.Vector3(g.o[0],g.o[1],g.o[2])).addScaledVector(new THREE.Vector3(g.f[0],g.f[1],g.f[2]).normalize(),-hl(s)));
   const gR=gripOf('R');curlHand('Right',gR);
-  ikArm('Right',wrist(hR,gR,'Right'),camera.localToWorld(new THREE.Vector3(.6,-.9,.3)),[D(gR.f),D(gR.t)]);
+  const pk=adsK,pole=x=>camera.localToWorld(new THREE.Vector3(x*(1-.6*pk),-.9-.9*pk,.3-.2*pk));   // mirando: cotovelos para baixo, antebraços saem por baixo da tela
+  ikArm('Right',wrist(hR,gR,'Right'),pole(.6),[D(gR.f),D(gR.t)]);
   const gL=hL.visible&&gripOf('L');
-  if(gL){curlHand('Left',gL);ikArm('Left',wrist(hL,gL,'Left'),camera.localToWorld(new THREE.Vector3(-.6,-.9,.3)),[D(gL.f),D(gL.t)])}
+  if(gL){curlHand('Left',gL);ikArm('Left',wrist(hL,gL,'Left'),pole(-.6),[D(gL.f),D(gL.t)])}
   else ikArm('Left',camera.localToWorld(new THREE.Vector3(-.3,-.75,.15)),camera.localToWorld(new THREE.Vector3(-.6,-.9,.3)),null); // mão esquerda fora da tela
 }
 // celular: texturas do soldado em 1024 px (as originais têm 2048; 4x menos memória de vídeo)
@@ -1310,7 +1315,7 @@ function shoot(){
   ejectShell(ep,new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion),new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion),cw.id==='awp'||cw.id==='deagle');
   boom(mp,0x8a8a8a,.12,.9,.22,.6);
   const ray=new THREE.Raycaster();
-  const sp=cw.sp+moveAmt*.014+(P.y>0?.03:0);
+  const sp=(cw.sp+moveAmt*.014+(P.y>0?.03:0))*(1-.65*adsK);   // mirando pela pistola: bem mais preciso
   pitch=Math.min(1.45,pitch+cw.rc*(.6+Math.random()*.8));yaw+=(Math.random()-.5)*.01;
   let hsHit=false;
   for(let pi=0;pi<cw.n;pi++){
@@ -1339,14 +1344,18 @@ function shoot(){
 // Botão direito (ou #bZ no toque): zoom 1 → zoom 2 → sem zoom. Com a luneta a arma some, aparece a mira preta
 // (#scope) e o mouse fica mais lento. Logo depois do tiro (ferrolho, 55% do intervalo) a luneta sai e volta sozinha.
 const SCOPE_FOV=[0,30,11];
+// mira pelas miras da pistola (ADS): botão direito segurado (ou #bZ "Mirar" no toque, alterna). Só pistolas.
+const ADSY=-.012,ADSZ=-.4;   // posição da arma mirando: topo da pistola (y=.047 no espaço da arma) logo abaixo do centro
+const canAds=()=>!!(cw&&cw.cat==='p'&&alive&&!reloading&&!paused);
+function zoomBtn(){if(cw&&cw.sc)toggleScope();else if(canAds())ads=!ads}
 function toggleScope(){if(!cw||!cw.sc||!alive||reloading)return;scopeLv=(scopeLv+1)%3;clk(scopeLv?1300:700,.04)}
 function scoped(){return playing&&scopeLv>0&&cw&&cw.sc&&alive&&!paused&&!reloading&&cool<cw.cd*.45}
 function updateScope(){
-  const on=scoped(),f=on?SCOPE_FOV[scopeLv]*BASEFOV/75:BASEFOV;
+  const on=scoped(),f=on?SCOPE_FOV[scopeLv]*BASEFOV/75:BASEFOV*(1-.16*adsK);   // mirando: zoom leve
   if(camera.fov!==f){camera.fov=f;camera.updateProjectionMatrix()}
   gun.visible=!on;if(VA)VA.r.visible=!on;
-  $('scope').classList.toggle('on',on);$('cross').classList.toggle('hide',on);
-  $('bZ').classList.toggle('hide',!(cw&&cw.sc));
+  $('scope').classList.toggle('on',on);$('cross').classList.toggle('hide',on||adsK>.4);
+  $('bZ').classList.toggle('hide',!(cw&&(cw.sc||canAds())));if(cw)$('bZ').textContent=cw.sc?'Luneta':'Mirar';
 }
 function doReload(){
   if(reloading||ammo===MAG||reserve<=0||!alive)return;scopeLv=0;
@@ -1450,7 +1459,7 @@ function update(dt){
   const l=Math.hypot(mx,mz);if(l>1){mx/=l;mz/=l}
   moveAmt=Math.min(l,1);
   if(l>.1&&P.y===0){stepT+=dt;if(stepT>.38){stepT=0;beep(70,.06,'triangle',.02)}}
-  const sp=cw.k?7.4:6.2,fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
+  const sp=(cw.k?7.4:6.2)*(1-.35*adsK),fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
   P.x+=(fx*mz+rx*mx)*sp*dt;P.z+=(fz*mz+rz*mx)*sp*dt;
   resolve(P,.45);
   if(keys.Space&&P.y===0)P.vy=7;
@@ -1478,6 +1487,10 @@ function update(dt){
   if(BODY){gun.position.x-=.17;gun.position.y-=.03;gun.position.z-=.05}   // bodycam: arma mais ao centro, à frente do peito
   if(gHold>=0){const c=Math.min(1,gHold/GFULL);gun.position.z+=c*.12;gun.position.y+=c*.07;gun.position.x+=c*.05}   // granada: braço recua enquanto carrega
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
+  adsK+=((ads&&canAds()?1:0)-adsK)*Math.min(1,dt*11);
+  if(adsK>.001){const k=adsK*adsK*(3-2*adsK);   // mira pela alça e massa: topo do ferrolho logo abaixo do centro da tela
+    gun.position.x+=(0-gun.position.x)*k;gun.position.y+=(ADSY+Math.sin(bobT*.5)*.003-gun.position.y)*k;gun.position.z+=(ADSZ+kick*.05-gun.position.z)*k;
+    gun.rotation.x*=1-k*.8;gun.rotation.y*=1-k;gun.rotation.z*=1-k}
   if(VA)viewArms();
   flash.visible=flashT>0;mlight.intensity=flashT>0?3:0;
 
@@ -1568,8 +1581,8 @@ let wheelT=0;   // scroll troca de arma: para baixo a próxima, para cima a ante
 addEventListener('wheel',e=>{if(!playing||paused||!alive||isTouch||!e.deltaY)return;e.preventDefault();const t=performance.now();if(t-wheelT<150)return;wheelT=t;cycle(e.deltaY>0?1:-1)},{passive:false});
 let mouseDown=false;
 addEventListener('contextmenu',e=>{if(playing)e.preventDefault()});
-addEventListener('mousedown',e=>{if(e.button===2&&playing&&!paused&&!isTouch)toggleScope();if(e.button===0&&playing&&!paused&&!isTouch){mouseDown=true;if(cw.gr)grenDown();else firing=true}});
-addEventListener('mouseup',()=>{mouseDown=false;firing=false;grenUp()});
+addEventListener('mousedown',e=>{if(e.button===2&&playing&&!paused&&!isTouch){if(cw.sc)toggleScope();else ads=true}if(e.button===0&&playing&&!paused&&!isTouch){mouseDown=true;if(cw.gr)grenDown();else firing=true}});
+addEventListener('mouseup',e=>{if(e.button===2){ads=false;return}mouseDown=false;firing=false;grenUp()});
 addEventListener('mousemove',e=>{
   if(!playing||paused||isTouch)return;
   if(document.pointerLockElement||mouseDown){
@@ -1660,13 +1673,13 @@ function loop(t){
   if(BODY&&t-bcT>500){bcT=t;const d=new Date(),z=n=>String(n).padStart(2,'0');$('bct').textContent=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+' '+z(d.getHours())+':'+z(d.getMinutes())+':'+z(d.getSeconds())}
   if(composer){grade.uniforms.time.value=t*.001%100;if(bcPass)bcPass.uniforms.time.value=t*.001%100;composer.render(dt)}else renderer.render(scene,camera);
 }
-hold('bW',cycle);hold('bS',openShop);hold('bG',throwGren);hold('bZ',toggleScope);
+hold('bW',cycle);hold('bS',openShop);hold('bG',throwGren);hold('bZ',zoomBtn);
 $('shopb').onclick=openShop;$('sback').onclick=closeShop;$('bInv').onclick=openShop;
 $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;save();$('op').textContent='Jogo salvo.'};
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);setBody(BODY,true);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={aim:v=>{ads=v;return {adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
