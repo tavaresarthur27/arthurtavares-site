@@ -997,8 +997,9 @@ function gripOf(s){
   if(s==='L'&&reloading&&mags.length&&cw.n===1&&RS.p>.12&&RS.p<.8)return GRIP.M;
   if(cw.x2&&s==='L'){const r=GRIP.p.R;return{o:[-r.o[0],r.o[1],r.o[2]],f:[-r.f[0],r.f[1],r.f[2]],t:[-r.t[0],r.t[1],r.t[2]],c:r.c,th:r.th,tb:r.tb}}   // duas pistolas: esquerda espelha a direita
   const g=GRIP[cw.k?'k':cw.cat==='p'?'p':'r'][s];
-  if(adsK>.001&&cw.cat==='p'){const F=s==='R'?[0,.5,-.87]:[.3,.45,-.84],k=adsK;   // mirando: pulso abaixo do cabo (antebraço sai por baixo, fora da linha de visão)
-    return Object.assign({},g,{f:g.f.map((v,i)=>v+(F[i]-v)*k),o:[g.o[0],g.o[1]+.04*k,g.o[2]+.01*k]})}   // e a mão sobe no cabo
+  if(adsK>.001&&cw.cat==='p'){   // mirando: a mão inteira (dedos e polegar juntos) gira para cima em X, pulso abaixo do cabo e
+    const a=(s==='R'?.83:.76)*adsK,c=Math.cos(a),n=Math.sin(a),R=v=>[v[0],v[1]*c-v[2]*n,v[1]*n+v[2]*c],k=adsK;   // antebraço por baixo, fora da linha de visão;
+    return Object.assign({},g,{f:R(g.f),t:R(g.t),o:[g.o[0],g.o[1]+.04*k,g.o[2]+.01*k]})}   // girar só os dedos torcia a mão (polegar paralelo aos dedos)
   return g;
 }
 function curlHand(s,g){                                               // fecha os dedos em volta do cabo
