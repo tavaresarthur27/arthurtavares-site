@@ -21,12 +21,19 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.first.outputs.page_url || steps.retry.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
-      - id: deployment
+      # o deploy às vezes não acha o pacote recém-enviado ("No artifacts named github-pages"): espera e tenta de novo
+      - id: first
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - if: steps.first.outcome == 'failure'
+        run: sleep 30
+      - id: retry
+        if: steps.first.outcome == 'failure'
         uses: actions/deploy-pages@v4
