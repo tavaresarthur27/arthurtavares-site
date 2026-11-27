@@ -781,6 +781,30 @@ function closeShop(){
 // Modo de câmera corporal (tecla C ou botão no menu): câmera no peito, lente olho de peixe e imagem de gravação
 // (shader bcPass no desktop; no celular, filtro CSS), sem mira, com REC, data e hora. Preferência em localStorage.
 let bcYaw=0,bcPitch=0,bcT=0;
+// ---------- rostos borrados (bodycam) ----------
+// Como nas gravações policiais divulgadas: um borrão (backdrop-filter, em #fblur) sobre a cabeça de cada inimigo, vivo ou caído.
+// Só aparece se a cabeça estiver à vista (raio contra as paredes), para o borrão não denunciar quem está escondido.
+// Com a lente olho de peixe (bcPass), a posição na tela passa pela inversa do barril do shader.
+const FBL=[],_fv=new THREE.Vector3(),_fd=new THREE.Vector3(),_fr=new THREE.Raycaster(),BN=1+.32*.5*1.64;
+function faceBlur(){
+  let n=0;
+  if(BODY&&playing&&!paused){
+    const heads=[],cp=camera.position,W=innerWidth,H=innerHeight,f=H/2/Math.tan(camera.fov*Math.PI/360);
+    for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(h)heads.push(h.getWorldPosition(new THREE.Vector3()))}
+    for(const d of dying)if(d.t<5&&d.p.H)heads.push(d.p.H.c);
+    for(const hp of heads){
+      const dist=hp.distanceTo(cp);if(dist<.4||dist>70)continue;
+      _fv.copy(hp).project(camera);if(_fv.z>1||Math.abs(_fv.x)>1.3||Math.abs(_fv.y)>1.3)continue;
+      _fr.set(cp,_fd.subVectors(hp,cp).normalize());_fr.far=dist-.3;if(_fr.intersectObjects(solids,false).length)continue;
+      let u=_fv.x*.5,v=_fv.y*.5,s=1;
+      if(bcPass&&bcPass.enabled){let pu=u*BN,pv=v*BN;for(let k=0;k<4;k++){const r2=(1.6*pu)**2+pv*pv,g=BN/(1+.32*r2);pu=u*g;pv=v*g;s=g}u=pu;v=pv}   // inversa do barril
+      const r=Math.max(9,.19*f/dist*s);
+      let el=FBL[n];if(!el){el=document.createElement('i');$('fblur').appendChild(el);FBL.push(el)}
+      el.style.cssText='display:block;left:'+((u+.5)*W-r)+'px;top:'+((.5-v)*H-r*1.15)+'px;width:'+(2*r)+'px;height:'+(2.3*r)+'px';n++;
+    }
+  }
+  for(let i=n;i<FBL.length;i++)if(FBL[i].style.display!=='none')FBL[i].style.display='none';
+}
 function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0')}catch(e){}
   if(MAPI!==(v?1:0)){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(v?1:0);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}
   if(bcPass)bcPass.enabled=v;document.body.classList.toggle('bodycam',v);$('camb').textContent='Modo bodycam: '+(v?'ligado':'desligado');onResize()}
@@ -1687,7 +1711,7 @@ function loop(t){
     gun.position.z=-.5;gun.rotation.set(0,0,0);flash.visible=false;mlight.intensity=0;restPose();
     for(const e of enemies)e.g.position.y=0;
   }
-  updateScope();updateLamps(t);
+  updateScope();updateLamps(t);faceBlur();
   if(BODY&&t-bcT>500){bcT=t;const d=new Date(),z=n=>String(n).padStart(2,'0');$('bct').textContent=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+' '+z(d.getHours())+':'+z(d.getMinutes())+':'+z(d.getSeconds())}
   if(composer){grade.uniforms.time.value=t*.001%100;if(bcPass)bcPass.uniforms.time.value=t*.001%100;composer.render(dt)}else renderer.render(scene,camera);
 }
