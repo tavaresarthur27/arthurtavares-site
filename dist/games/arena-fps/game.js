@@ -786,31 +786,37 @@ let bcYaw=0,bcPitch=0,bcT=0;
 // Como nas gravações policiais divulgadas: um borrão (backdrop-filter, em #fblur) sobre a cabeça de cada inimigo, vivo ou caído.
 // Só aparece se a cabeça estiver à vista (raio contra as paredes), para o borrão não denunciar quem está escondido.
 // Com a lente olho de peixe (bcPass), a posição na tela passa pela inversa do barril do shader.
-const FBL=[],_fv=new THREE.Vector3(),_fd=new THREE.Vector3(),_fr=new THREE.Raycaster(),BN=1+.32*.5*1.64;
+const FBL=[],BXL=[],_fv=new THREE.Vector3(),_fd=new THREE.Vector3(),_fr=new THREE.Raycaster(),BN=1+.32*.5*1.64;
 function faceBlur(){
-  let n=0,nf=0;
+  let n=0,nb=0,nf=0;
   if(BODY&&playing&&!paused){
-    const mos=!!(bcPass&&bcPass.enabled);
-    const heads=[],cp=camera.position,W=innerWidth,H=innerHeight,f=H/2/Math.tan(camera.fov*Math.PI/360);
-    const tag=o=>o.fid||(o.fid=String(1000+Math.random()*9000|0));   // número do "detector" de rostos, fixo por soldado
-    for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(h)heads.push([h.getWorldPosition(new THREE.Vector3()),tag(e)])}
-    for(const d of dying)if(d.t<5&&d.p.H)heads.push([d.p.H.c,tag(d)]);
-    for(const [hp,id] of heads){
+    const lens=!!(bcPass&&bcPass.enabled),cp=camera.position,W=innerWidth,H=innerHeight,f=H/2/Math.tan(camera.fov*Math.PI/360);
+    const scr=(w,o)=>{_fv.copy(w).project(camera);if(_fv.z>1)return null;let u=_fv.x*.5,v=_fv.y*.5,s=1;   // ponto do mundo → pixel na tela final
+      if(lens){let pu=u*BN,pv=v*BN;for(let k=0;k<4;k++){const r2=(1.6*pu)**2+pv*pv,g=BN/(1+.32*r2);pu=u*g;pv=v*g;s=g}u=pu;v=pv}   // inversa do barril
+      if(o){o.u=_fv.x*.5;o.v=_fv.y*.5;o.s=s}return[(u+.5)*W,(.5-v)*H]};
+    const tg=[];   // cabeça + pontos do corpo (para a caixa em volta do boneco inteiro)
+    for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(!h)continue;
+      const pts=e.meshes.map(o=>o.getWorldPosition(new THREE.Vector3()));pts.push(new THREE.Vector3(e.x,0,e.z));
+      const hp=h.getWorldPosition(new THREE.Vector3());pts.push(hp.clone().setY(hp.y+.16));tg.push([hp,pts])}
+    for(const d of dying)if(d.t<5&&d.p.H){const pts=[];for(const k in d.p)pts.push(d.p[k].c);tg.push([d.p.H.c,pts])}
+    const o={};
+    for(const [hp,pts] of tg){
       const dist=hp.distanceTo(cp);if(dist<.4||dist>70)continue;
       _fv.copy(hp).project(camera);if(_fv.z>1||Math.abs(_fv.x)>1.3||Math.abs(_fv.y)>1.3)continue;
-      _fr.set(cp,_fd.subVectors(hp,cp).normalize());_fr.far=dist-.3;if(_fr.intersectObjects(solids,false).length)continue;
-      let u=_fv.x*.5,v=_fv.y*.5,s=1;const r0=Math.max(9,.19*f/dist);
-      if(mos&&nf<8)bcPass.uniforms.faces.value[nf++].set(u+.5,v+.5,r0/W,r0*1.15/H);   // centro e raios em uv, antes da lente
-      if(bcPass&&bcPass.enabled){let pu=u*BN,pv=v*BN;for(let k=0;k<4;k++){const r2=(1.6*pu)**2+pv*pv,g=BN/(1+.32*r2);pu=u*g;pv=v*g;s=g}u=pu;v=pv}   // inversa do barril
-      const r=r0*s;
-      let el=FBL[n];if(!el){el=document.createElement('i');$('fblur').appendChild(el);FBL.push(el)}
-      if(el.dataset.id!==id)el.dataset.id=id;
-      el.style.cssText='display:block;left:'+((u+.5)*W-r)+'px;top:'+((.5-v)*H-r*1.15)+'px;width:'+(2*r)+'px;height:'+(2.3*r)+'px';n++;
+      _fr.set(cp,_fd.subVectors(hp,cp).normalize());_fr.far=dist-.3;if(_fr.intersectObjects(solids,false).length)continue;   // cabeça escondida: nada
+      const c=scr(hp,o),r0=Math.max(9,.19*f/dist),r=r0*o.s;
+      if(lens&&nf<8)bcPass.uniforms.faces.value[nf++].set(o.u+.5,o.v+.5,r0/W,r0*1.15/H);   // mosaico no shader (uv antes da lente)
+      else{let el=FBL[n];if(!el){el=document.createElement('i');el.className='f';$('fblur').appendChild(el);FBL.push(el)}   // sem shader: borrão no rosto
+        el.style.cssText='display:block;left:'+(c[0]-r)+'px;top:'+(c[1]-r*1.15)+'px;width:'+(2*r)+'px;height:'+(2.3*r)+'px';n++}
+      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const q of pts){const a=scr(q);if(!a)continue;if(a[0]<x0)x0=a[0];if(a[0]>x1)x1=a[0];if(a[1]<y0)y0=a[1];if(a[1]>y1)y1=a[1]}
+      const pad=Math.max(4,r*.45);x0-=pad;x1+=pad;y0-=pad;y1+=pad;
+      let bx=BXL[nb];if(!bx){bx=document.createElement('b');$('fblur').appendChild(bx);BXL.push(bx)}   // caixa verde em volta do corpo
+      bx.style.cssText='display:block;left:'+x0+'px;top:'+y0+'px;width:'+(x1-x0)+'px;height:'+(y1-y0)+'px';nb++;
     }
   }
   for(let i=n;i<FBL.length;i++)if(FBL[i].style.display!=='none')FBL[i].style.display='none';
+  for(let i=nb;i<BXL.length;i++)if(BXL[i].style.display!=='none')BXL[i].style.display='none';
   if(bcPass)bcPass.uniforms.nf.value=nf;
-  $('fblur').classList.toggle('mos',!!(bcPass&&bcPass.enabled));   // com o shader, o mosaico substitui o borrão do CSS
 }
 function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0')}catch(e){}
   if(MAPI!==(v?1:0)){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(v?1:0);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}
