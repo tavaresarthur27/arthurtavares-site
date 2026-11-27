@@ -519,6 +519,24 @@ const TX_SPLAT=[0,1,2].map(()=>fxTex(128,(x,n)=>{const h=n/2,R=()=>Math.random()
 const SPLAT_M=TX_SPLAT.map(t=>new THREE.MeshBasicMaterial({map:t,color:new THREE.Color(.75,.6,.6).multiplyScalar(BC*.6),transparent:true,opacity:.9,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3}));
 const DROP_M=new THREE.MeshBasicMaterial({map:TX_GLOW,color:new THREE.Color(0x7a0808).multiplyScalar(BC),transparent:true,depthWrite:false,side:THREE.DoubleSide});
 const bloodL=[],splats=[];
+// ferimento de bala no corpo: furo escuro com mancha irregular de sangue, preso ao osso atingido (acompanha a animação e o
+// ragdoll, e fica no cadáver). As caixas de acerto são maiores que o corpo: o decalque entra um pouco na direção do tiro.
+const TX_WOUND=[0,1,2].map(()=>fxTex(64,(x,n)=>{const h=n/2,R=()=>Math.random();
+  for(let i=0;i<9;i++){const a=R()*6.28,d=R()*h*.35,r=h*(.18+R()*.22),g=x.createRadialGradient(h+Math.cos(a)*d,h+Math.sin(a)*d,0,h+Math.cos(a)*d,h+Math.sin(a)*d,r);
+    g.addColorStop(0,'rgba(130,8,10,.9)');g.addColorStop(1,'rgba(90,5,7,0)');x.fillStyle=g;x.fillRect(0,0,n,n)}
+  for(let i=0;i<10;i++){const a=R()*6.28,d=h*(.35+R()*.45);x.fillStyle='rgba(80,5,7,.8)';x.beginPath();x.arc(h+Math.cos(a)*d,h+Math.sin(a)*d,h*(.03+R()*.05),0,7);x.fill()}
+  const c=x.createRadialGradient(h,h,0,h,h,h*.22);c.addColorStop(0,'rgba(8,2,2,1)');c.addColorStop(.7,'rgba(40,3,4,.95)');c.addColorStop(1,'rgba(60,4,6,0)');
+  x.fillStyle=c;x.beginPath();x.arc(h,h,h*.22,0,7);x.fill()}));
+const WOUND_M=TX_WOUND.map(t=>new THREE.MeshBasicMaterial({map:t,color:new THREE.Color(1,1,1).multiplyScalar(BC),transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,side:THREE.DoubleSide}));
+const WOUND_G=new THREE.PlaneGeometry(1,1),_wn=new THREE.Vector3();
+function wound(hit,dir){
+  const o=hit.object,e=o.userData.owner,par=o.userData.hb?o.parent:o;if(!e||!par)return;   // caixa de acerto: preso ao osso (a caixa tem escala esticada)
+  const m=new THREE.Mesh(WOUND_G,WOUND_M[Math.random()*3|0]);
+  if(hit.face)_wn.copy(hit.face.normal).transformDirection(o.matrixWorld);else _wn.copy(dir).negate();
+  m.position.copy(hit.point).addScaledVector(dir,o.userData.hb?(o.userData.head?.03:.045):.002);
+  m.lookAt(m.position.clone().add(_wn));m.rotateZ(Math.random()*6.28);m.scale.setScalar(.1+Math.random()*.05);
+  scene.add(m);par.attach(m);(e.wounds||(e.wounds=[])).push(m);if(e.wounds.length>12){const w=e.wounds.shift();if(w.parent)w.parent.remove(w)}
+}
 function splat(x,z,s){const m=new THREE.Mesh(PLANE,SPLAT_M[Math.random()*3|0].clone());m.rotation.set(-Math.PI/2,0,Math.random()*6.28);m.position.set(x,.012+splats.length*1e-5,z);m.scale.setScalar(s);scene.add(m);
   splats.push({m,t:0});if(splats.length>40){const o=splats.shift();scene.remove(o.m);o.m.material.dispose()}}
 // k: intensidade (1 tiro comum, ~2.5 headshot)
@@ -1479,7 +1497,7 @@ function shoot(){
   ray.setFromCamera({x:(Math.random()-.5)*sp*2,y:(Math.random()-.5)*sp*2},camera);
   const hit=ray.intersectObjects(solids.concat(enemies.flatMap(e=>e.meshes)),false)[0];
   if(pi<3)tracer(mp,hit?hit.point:ray.ray.at(120,new THREE.Vector3()),380);
-  if(hit&&hit.object.userData.owner)bloodFx(hit.point,ray.ray.direction,cw.dmg>60?1.6:1);
+  if(hit&&hit.object.userData.owner){bloodFx(hit.point,ray.ray.direction,cw.dmg>60?1.6:1);wound(hit,ray.ray.direction)}
   if(hit&&!hit.object.userData.owner&&hit.face){
     const nn=hit.face.normal.clone().transformDirection(hit.object.matrixWorld),dc=new THREE.Mesh(holeG,holeM);
     dc.position.copy(hit.point).addScaledVector(nn,.004);dc.lookAt(dc.position.clone().add(nn));dc.rotateZ(Math.random()*6.28);dc.scale.setScalar(.8+Math.random()*.5);scene.add(dc);holes.push(dc);
