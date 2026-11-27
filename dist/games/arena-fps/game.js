@@ -69,14 +69,15 @@ if(PP){
   fxaa=new THREE.ShaderPass(THREE.FXAAShader);composer.addPass(fxaa);
   // bodycam: lente olho de peixe (barril), aberração cromática, cor lavada e fria, contraste alto, ruído e linhas
   bcPass=new THREE.ShaderPass({
-    uniforms:{tDiffuse:{value:null},time:{value:0}},
+    uniforms:{tDiffuse:{value:null},time:{value:0},faces:{value:[0,1,2,3,4,5,6,7].map(()=>new THREE.Vector4())},nf:{value:0}},
     vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
     fragmentShader:[
-      'uniform sampler2D tDiffuse;uniform float time;varying vec2 vUv;',
+      'uniform sampler2D tDiffuse;uniform float time;uniform vec4 faces[8];uniform int nf;varying vec2 vUv;',
       'float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
       'void main(){vec2 p=vUv-.5;float r2=dot(p*vec2(1.6,1.),p*vec2(1.6,1.));',
       ' vec2 q=p*(1.+.32*r2)/(1.+.32*.5*1.64);',                                    // barril: bordas comprimidas, cantos ainda cobertos
       ' vec2 c=q*r2*.018,u=q+.5;',
+      ' for(int i=0;i<8;i++){if(i>=nf)break;vec4 F=faces[i];vec2 d=(u-F.xy)/F.zw;if(dot(d,d)<1.){vec2 bs=F.zw*.4;u=(floor((u-F.xy)/bs)+.5)*bs+F.xy;c=vec2(0.);}}',   // rosto: mosaico
       ' vec3 col=vec3(texture2D(tDiffuse,u+c).r,texture2D(tDiffuse,u).g,texture2D(tDiffuse,u-c).b);',
       ' float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,.62);',             // cor lavada
       ' col=(col-.5)*1.18+.5;col*=vec3(.94,1.,1.04);',                                // contraste e tom frio
@@ -787,23 +788,29 @@ let bcYaw=0,bcPitch=0,bcT=0;
 // Com a lente olho de peixe (bcPass), a posição na tela passa pela inversa do barril do shader.
 const FBL=[],_fv=new THREE.Vector3(),_fd=new THREE.Vector3(),_fr=new THREE.Raycaster(),BN=1+.32*.5*1.64;
 function faceBlur(){
-  let n=0;
+  let n=0,nf=0;
   if(BODY&&playing&&!paused){
+    const mos=!!(bcPass&&bcPass.enabled);
     const heads=[],cp=camera.position,W=innerWidth,H=innerHeight,f=H/2/Math.tan(camera.fov*Math.PI/360);
-    for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(h)heads.push(h.getWorldPosition(new THREE.Vector3()))}
-    for(const d of dying)if(d.t<5&&d.p.H)heads.push(d.p.H.c);
-    for(const hp of heads){
+    const tag=o=>o.fid||(o.fid=String(1000+Math.random()*9000|0));   // número do "detector" de rostos, fixo por soldado
+    for(const e of enemies){const h=e.meshes.find(o=>o.userData.head);if(h)heads.push([h.getWorldPosition(new THREE.Vector3()),tag(e)])}
+    for(const d of dying)if(d.t<5&&d.p.H)heads.push([d.p.H.c,tag(d)]);
+    for(const [hp,id] of heads){
       const dist=hp.distanceTo(cp);if(dist<.4||dist>70)continue;
       _fv.copy(hp).project(camera);if(_fv.z>1||Math.abs(_fv.x)>1.3||Math.abs(_fv.y)>1.3)continue;
       _fr.set(cp,_fd.subVectors(hp,cp).normalize());_fr.far=dist-.3;if(_fr.intersectObjects(solids,false).length)continue;
-      let u=_fv.x*.5,v=_fv.y*.5,s=1;
+      let u=_fv.x*.5,v=_fv.y*.5,s=1;const r0=Math.max(9,.19*f/dist);
+      if(mos&&nf<8)bcPass.uniforms.faces.value[nf++].set(u+.5,v+.5,r0/W,r0*1.15/H);   // centro e raios em uv, antes da lente
       if(bcPass&&bcPass.enabled){let pu=u*BN,pv=v*BN;for(let k=0;k<4;k++){const r2=(1.6*pu)**2+pv*pv,g=BN/(1+.32*r2);pu=u*g;pv=v*g;s=g}u=pu;v=pv}   // inversa do barril
-      const r=Math.max(9,.19*f/dist*s);
+      const r=r0*s;
       let el=FBL[n];if(!el){el=document.createElement('i');$('fblur').appendChild(el);FBL.push(el)}
+      if(el.dataset.id!==id)el.dataset.id=id;
       el.style.cssText='display:block;left:'+((u+.5)*W-r)+'px;top:'+((.5-v)*H-r*1.15)+'px;width:'+(2*r)+'px;height:'+(2.3*r)+'px';n++;
     }
   }
   for(let i=n;i<FBL.length;i++)if(FBL[i].style.display!=='none')FBL[i].style.display='none';
+  if(bcPass)bcPass.uniforms.nf.value=nf;
+  $('fblur').classList.toggle('mos',!!(bcPass&&bcPass.enabled));   // com o shader, o mosaico substitui o borrão do CSS
 }
 function setBody(v,boot){BODY=v;try{localStorage.setItem('arenafps_cam',v?'1':'0')}catch(e){}
   if(MAPI!==(v?1:0)){if(playing&&alive){contW=Math.max(contW,wave-1);contS=score;save()}setMap(v?1:0);if(!boot){playing=false;paused=false;if(document.pointerLockElement)document.exitPointerLock();showTitle()}}

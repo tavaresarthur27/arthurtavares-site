@@ -97,4 +97,8 @@ body.bodycam:not(.pp) #view canvas{filter:contrast(1.18) saturate(.62) brightnes
 body.bodycam:not(.pp) #vig{display:block;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.75) 100%)}
 /* bodycam: borrão nos rostos (posicionado por faceBlur em game.js) */
 #fblur{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-#fblur i{position:absolute;display:none;border-radius:50%;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);background:rgba(110,104,96,.18);box-shadow:0 0 12px 6px rgba(110,104,96,.12)}
+/* caixa verde de "detecção de rosto" com rótulo e traço para o lado; sem o shader (celular) o rosto é borrado aqui mesmo */
+#fblur i{position:absolute;display:none;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);background:rgba(110,104,96,.15);border:1.5px solid rgba(70,255,120,.85);box-shadow:0 0 6px rgba(70,255,120,.35)}
+#fblur.mos i{-webkit-backdrop-filter:none;backdrop-filter:none;background:none}
+#fblur i:before{content:"ROSTO " attr(data-id);position:absolute;left:-1.5px;bottom:100%;margin-bottom:3px;font:700 10px/1 ui-monospace,Consolas,monospace;color:#5f6;text-shadow:0 0 3px #000;white-space:nowrap;letter-spacing:.06em}
+#fblur i:after{content:"";position:absolute;left:100%;top:18%;width:70%;height:1.5px;background:rgba(70,255,120,.75)}
