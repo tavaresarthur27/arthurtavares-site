@@ -1316,7 +1316,7 @@ function shoot(){
   ejectShell(ep,new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion),new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion),cw.id==='awp'||cw.id==='deagle');
   boom(mp,0x8a8a8a,.12,.9,.22,.6);
   const ray=new THREE.Raycaster();
-  const sp=(cw.sp+moveAmt*.014+(P.y>0?.03:0))*(1-.65*adsK);   // mirando pela pistola: bem mais preciso
+  const sp=(cw.sp+moveAmt*.014+(P.y>0?.03:0))*(1-.65*adsK);   // mirando pela arma: bem mais preciso
   pitch=Math.min(1.45,pitch+cw.rc*(.6+Math.random()*.8));yaw+=(Math.random()-.5)*.01;
   let hsHit=false;
   for(let pi=0;pi<cw.n;pi++){
@@ -1346,13 +1346,30 @@ function shoot(){
 // (#scope) e o mouse fica mais lento. Logo depois do tiro (ferrolho, 55% do intervalo) a luneta sai e volta sozinha.
 const SCOPE_FOV=[0,30,11];
 // mira pelas miras da pistola (ADS): botão direito segurado (ou #bZ "Mirar" no toque, alterna). Só pistolas.
-const ADSY=-.012,ADSZ=-.4;   // posição da arma mirando: topo da pistola (y=.047 no espaço da arma) logo abaixo do centro
-const canAds=()=>!!(cw&&cw.cat==='p'&&alive&&!reloading&&!paused);
+// posição da arma mirando (y, z no espaço da câmera): pistola esticada à frente; rifles e submetralhadoras com a coronha no ombro
+// e a alça de mira no olho. MDL[id].ads={y,z} ajusta uma arma específica.
+const ADS_P={y:-.012,z:-.4},ADS_R={y:-.022,z:-.14},FS={};
+// altura da massa de mira: ponto mais alto da parte da frente da arma (25% do comprimento), perto do eixo, no espaço do `gun`.
+// Mirando, a arma sobe até essa ponta ficar na linha do olho (centro da tela, para onde a bala vai). Calculada uma vez por arma.
+function frontSight(){
+  if(FS[cw.id]!==undefined)return FS[cw.id];
+  gun.updateMatrixWorld(true);const inv=new THREE.Matrix4().copy(gun.matrixWorld).invert(),M=new THREE.Matrix4(),v=new THREE.Vector3(),ms=[];
+  wm.traverse(o=>{if(o.isMesh&&o.visible&&o.geometry&&o.geometry.attributes.position)ms.push(o)});
+  let z0=1e9,z1=-1e9;const pts=[];
+  for(const o of ms){M.multiplyMatrices(inv,o.matrixWorld);const P=o.geometry.attributes.position,st=Math.max(1,Math.floor(P.count/40000));
+    for(let i=0;i<P.count;i+=st){v.fromBufferAttribute(P,i).applyMatrix4(M);pts.push(v.x,v.y,v.z);if(v.z<z0)z0=v.z;if(v.z>z1)z1=v.z}}
+  if(!pts.length)return FS[cw.id]=null;
+  const zf=z0+(z1-z0)*.25;let y=-1e9;
+  for(let i=0;i<pts.length;i+=3)if(pts[i+2]<zf&&Math.abs(pts[i])<.025&&pts[i+1]>y)y=pts[i+1];
+  return FS[cw.id]=y>-1e8?y:null;
+}
+const adsPos=()=>{const m=MDL[cw.id],b=cw.cat==='p'?ADS_P:ADS_R;if(m&&m.ads)return m.ads;const f=m&&m.tpl?frontSight():null;return f==null?b:{y:-f,z:b.z}};
+const canAds=()=>!!(cw&&!cw.k&&!cw.sc&&!cw.x2&&alive&&!reloading&&!paused);   // todas as armas de fogo menos a de luneta e as Berettas duplas
 function zoomBtn(){if(cw&&cw.sc)toggleScope();else if(canAds())ads=!ads}
 function toggleScope(){if(!cw||!cw.sc||!alive||reloading)return;scopeLv=(scopeLv+1)%3;clk(scopeLv?1300:700,.04)}
 function scoped(){return playing&&scopeLv>0&&cw&&cw.sc&&alive&&!paused&&!reloading&&cool<cw.cd*.45}
 function updateScope(){
-  const on=scoped(),f=on?SCOPE_FOV[scopeLv]*BASEFOV/75:BASEFOV*(1-.16*adsK);   // mirando: zoom leve
+  const on=scoped(),f=on?SCOPE_FOV[scopeLv]*BASEFOV/75:BASEFOV*(1-(cw&&cw.cat==='p'?.16:.22)*adsK);   // mirando: zoom leve (um pouco mais nos rifles)
   if(camera.fov!==f){camera.fov=f;camera.updateProjectionMatrix()}
   gun.visible=!on;if(VA)VA.r.visible=!on;
   $('scope').classList.toggle('on',on);$('cross').classList.toggle('hide',on||adsK>.4);
@@ -1490,7 +1507,7 @@ function update(dt){
   gun.rotation.x=kick*.1+tilt*.35-swing*.8;gun.rotation.y=tilt*.2;gun.rotation.z=-tilt*.85+swing*.6;
   adsK+=((ads&&canAds()?1:0)-adsK)*Math.min(1,dt*11);
   if(adsK>.001){const k=adsK*adsK*(3-2*adsK);   // mira pela alça e massa: topo do ferrolho logo abaixo do centro da tela
-    gun.position.x+=(0-gun.position.x)*k;gun.position.y+=(ADSY+Math.sin(bobT*.5)*.003-gun.position.y)*k;gun.position.z+=(ADSZ+kick*.05-gun.position.z)*k;
+    gun.position.x+=(0-gun.position.x)*k;const A=adsPos();gun.position.y+=(A.y+Math.sin(bobT*.5)*.003-gun.position.y)*k;gun.position.z+=(A.z+kick*.05-gun.position.z)*k;
     gun.rotation.x*=1-k*.8;gun.rotation.y*=1-k;gun.rotation.z*=1-k}
   if(VA)viewArms();
   flash.visible=flashT>0;mlight.intensity=flashT>0?3:0;
@@ -1680,7 +1697,7 @@ $('saveb').onclick=()=>{contW=Math.max(0,wave-(enemies.length?1:0));contS=score;
 $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPointerLock();playing=false;paused=false;alive=false;needReset=true;lockedOnce=false;showTitle()};
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);setBody(BODY,true);showTitle();loadSoldier();
-if(/[?&]debug/.test(location.search))window.__g={aim:v=>{ads=v;return {adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
+if(/[?&]debug/.test(location.search))window.__g={aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
   pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
