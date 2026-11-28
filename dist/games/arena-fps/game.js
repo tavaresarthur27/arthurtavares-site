@@ -299,8 +299,8 @@ function tree(x,z,s,sh){                                             // árvore 
 }
 function vis(x,y,z,w,h,d,m,t,solid){                                 // peça só visual (não bloqueia o passo); `solid`: para as balas
   const geo=new THREE.BoxGeometry(w,h,d);if(t)fitUV(geo,w,h,d,t);const o=new THREE.Mesh(geo,m);o.position.set(x,y+h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);if(solid)solids.push(o);return o}
-function ground(H,tile){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
-  const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),dirtM.clone()),uv=fl.geometry.attributes.uv;
+function ground(H,tile,gm){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
+  const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),(gm||dirtM).clone()),uv=fl.geometry.attributes.uv;
   for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/tile,uv.getY(i)*2*H/tile);fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MG.add(fl);
   const far=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.MeshStandardMaterial({color:new THREE.Color('#5c4a35').convertSRGBToLinear(),roughness:1}));
   far.rotation.x=-Math.PI/2;far.position.y=-.03;MG.add(far);return fl;
@@ -359,31 +359,72 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   const pylon=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pyl),new THREE.LineBasicMaterial({color:0x3a3d40}));pylon.position.set(-18,0,-55);MG.add(pylon);
   const pk=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(!G[r][c]&&(r+c)%7===0)pk.push([wx(c)+1,wx(r)+1]);
   mapEnd(1,H,[wx(19)+1,wx(22)+1],pk.sort(()=>Math.random()-.5).slice(0,10),fl2);MAPS[1].flow=true;
-  // ----- casa: casa abandonada com cômodos, portas e janelas, telhado; garagem, carro velho e cerca -----
-  solids.length=0;boxes.length=0;MG=MAP3;H=26;const fl3=ground(H,5);
+  // ----- casa: sobrado de madeira branca (dois andares, telhado cinza de duas águas, varanda com colunas, grade e lonas),
+  // andaime ao lado, quintal de cascalho com entulho, blocos e pilares de concreto, tambores e um carro coberto por lona.
+  // Só o térreo é jogável (não há escadas no jogo); o andar de cima é a casca com janelas.
+  solids.length=0;boxes.length=0;MG=MAP3;H=26;
+  const gravelM=mat((g,n)=>{g.fillStyle='#857a6c';g.fillRect(0,0,n,n);blobs(g,n,70,.03,.12,['#776d60','#958a7b','#6c6357'],.4);
+    for(let k=0;k<700;k++){const v=90+Math.random()*90|0;g.fillStyle='rgba('+v+','+(v*.95|0)+','+(v*.88|0)+','+(.5+Math.random()*.4)+')';g.beginPath();g.ellipse(Math.random()*n,Math.random()*n,n*(.003+Math.random()*.012),n*(.003+Math.random()*.009),Math.random()*3,0,6.283);g.fill()}
+    grain(g,n,22)},6,{roughness:1,envMapIntensity:.5});
+  const sidingM=mat((g,n)=>{const R=8,h=n/R;for(let r=0;r<R;r++){const b=205+Math.random()*20;g.fillStyle='rgb('+b+','+(b-2|0)+','+(b-8|0)+')';g.fillRect(0,r*h,n,h);   // tábuas horizontais brancas e gastas
+      g.fillStyle='rgba(255,255,255,.5)';g.fillRect(0,r*h,n,h*.12);g.fillStyle='rgba(60,58,52,.45)';g.fillRect(0,(r+1)*h-h*.12,n,h*.12)}
+    for(let k=0;k<30;k++){g.fillStyle='rgba(110,104,92,'+(.06+Math.random()*.12)+')';g.fillRect(Math.random()*n,Math.random()*n*.6,n/150+Math.random()*n/90,n*(.1+Math.random()*.5))}   // escorridos
+    blobs(g,n,26,.01,.04,['#9c968a','#b8b2a6'],.45);grain(g,n,14)},4,{roughness:.85,envMapIntensity:.55});
+  const shingleM=mat((g,n)=>{const R=10,h=n/R;for(let r=0;r<R;r++){const off=r%2?n/12:0;for(let c=-1;c<7;c++){const v=92+Math.random()*26;g.fillStyle='rgb('+v+','+(v*1.02|0)+','+(v*1.05|0)+')';g.fillRect(c*n/6+off+1,r*h+1,n/6-2,h-2)}
+    g.fillStyle='rgba(30,30,32,.5)';g.fillRect(0,(r+1)*h-2,n,2)}grain(g,n,16)},5,{roughness:.9,envMapIntensity:.4});
+  const plainCon=mat((g,n)=>{g.fillStyle='#7d7a72';g.fillRect(0,0,n,n);blobs(g,n,90,.02,.1,['#6f6c65','#8c8981','#64615b'],.45);blobs(g,n,160,.003,.012,['#4a4844'],.5);grain(g,n,22)},5,{roughness:.95,envMapIntensity:.35});
+  const winT=fxTex(128,(x,n)=>{x.fillStyle='#e9e7e0';x.fillRect(0,0,n,n);const m=n*.1;x.fillStyle='#1d2228';x.fillRect(m,m,n-2*m,n-2*m);   // janela: moldura branca, vidro escuro em 6 painéis
+    const gr=x.createLinearGradient(0,0,n,n);gr.addColorStop(0,'rgba(170,190,210,.35)');gr.addColorStop(.5,'rgba(60,70,80,.05)');gr.addColorStop(1,'rgba(150,170,190,.2)');x.fillStyle=gr;x.fillRect(m,m,n-2*m,n-2*m);
+    x.fillStyle='#e9e7e0';x.fillRect(n/2-m*.3,m,m*.6,n-2*m);x.fillRect(m,n/3-m*.3,n-2*m,m*.6);x.fillRect(m,2*n/3-m*.3,n-2*m,m*.6)});
+  const winM=new THREE.MeshStandardMaterial({map:winT,roughness:.4,metalness:.1,envMapIntensity:.6,polygonOffset:true,polygonOffsetFactor:-2});
+  const tarpBlue=new THREE.MeshStandardMaterial({color:new THREE.Color('#4a5866').convertSRGBToLinear(),roughness:.95,envMapIntensity:.4});
+  const tarpGreen=new THREE.MeshStandardMaterial({color:new THREE.Color('#58715f').convertSRGBToLinear(),roughness:.95,side:THREE.DoubleSide,envMapIntensity:.4});
+  const fl3=ground(H,4,gravelM);
   [[0,-H-.15,2*H+.6,.3],[0,H+.15,2*H+.6,.3],[-H-.15,0,.3,2*H+.6],[H+.15,0,.3,2*H+.6]].forEach(a=>addBox(a[0],a[1],a[2],a[3],1.7,plankM,1.5));   // cerca
-  const WH=3,T=.3;
-  // parede alinhada a um eixo, com aberturas {a,b,k:'p' porta | 'j' janela} medidas ao longo dela
-  const wall=(x0,z0,x1,z1,ops)=>{const hz=z0===z1,L=hz?x1-x0:z1-z0,P=(u0,u1,y0,h,col)=>{const c=(u0+u1)/2,w=u1-u0;const x=hz?x0+c:x0,z=hz?z0:z0+c,ww=hz?w:T,dd=hz?T:w;
-      if(col&&y0===0)B(x,z,ww,dd,h,wallM,2.5);else vis(x,y0,z,ww,h,dd,wallM,2.5,true)};
+  const WH=3,T=.3,X0=-8,X1=8,Z0=-10,Z1=0,W=X1-X0,D=Z1-Z0;
+  // parede do térreo alinhada a um eixo, com aberturas {a,b,k:'p' porta | 'j' janela} medidas ao longo dela
+  const wall=(x0,z0,x1,z1,ops,wm)=>{const hz=z0===z1,L=hz?x1-x0:z1-z0,P=(u0,u1,y0,h,col)=>{const c=(u0+u1)/2,w=u1-u0;const x=hz?x0+c:x0,z=hz?z0:z0+c,ww=hz?w:T,dd=hz?T:w;
+      if(col&&y0===0)B(x,z,ww,dd,h,wm,2.5);else vis(x,y0,z,ww,h,dd,wm,2.5,true)};
     let u=0;for(const o of ops.sort((p,q)=>p.a-q.a)){if(o.a>u)P(u,o.a,0,WH,true);if(o.k==='j')P(o.a,o.b,0,1,true);P(o.a,o.b,o.k==='p'?2.2:2.1,WH-(o.k==='p'?2.2:2.1));u=o.b}
     if(u<L)P(u,L,0,WH,true)};
-  const X0=-7,X1=7,Z0=-9,Z1=1;                                       // casa de 14 × 10 m
-  wall(X0,Z1,X1,Z1,[{a:2,b:3.6,k:'j'},{a:8,b:9.6,k:'p'},{a:10.6,b:12.2,k:'j'}]);   // frente: duas janelas e a porta
-  wall(X0,Z0,X1,Z0,[{a:2.6,b:4,k:'p'},{a:9,b:10.6,k:'j'}]);                         // fundos: porta e janela
-  wall(X0,Z0,X0,Z1,[{a:4,b:5.6,k:'j'}]);wall(X1,Z0,X1,Z1,[{a:3,b:4.6,k:'j'}]);        // laterais com janela
-  wall(-1.5,Z0,-1.5,Z1,[{a:4.2,b:5.6,k:'p'}]);wall(-1.5,-3.5,X1,-3.5,[{a:3.4,b:4.8,k:'p'}]);   // paredes internas: três cômodos
-  const fp=new THREE.Mesh(new THREE.PlaneGeometry(X1-X0,Z1-Z0),plankM);fp.rotation.x=-Math.PI/2;fp.position.set(0,.012,(Z0+Z1)/2);fp.receiveShadow=true;MG.add(fp);   // assoalho
-  vis(0,WH,(Z0+Z1)/2,X1-X0+.8,.18,Z1-Z0+.8,roofM,0,true);                                          // telhado
-  B(3.5,-6.5,1.6,.9,.8,woodM,1.25);B(-4.6,-7.6,2.2,.9,.9,rustM);B(6.2,-1.4,.5,1.6,1.9,plankM,1.5);B(-5.8,-1,1,1,1,woodM,1.25);   // mesa, sofa, estante, caixa
-  // garagem aberta na frente
-  B(14,9.5,.3,6,2.8,plankM,1.5);B(19.85,9.5,.3,6,2.8,plankM,1.5);B(16.9,6.65,6.2,.3,2.8,plankM,1.5);vis(16.9,2.8,9.5,6.6,.15,6.4,roofM,0,true);
-  B(-12,12,4.2,1.8,.9,rustM);vis(-12.3,.9,12,2.2,.6,1.6,rustM,0,true);for(const w of[[-13.4,11.1],[-13.4,12.9],[-10.6,11.1],[-10.6,12.9]])vis(w[0],0,w[1],.6,.6,.25,darkM);   // carro velho
-  [[10,-16,1.2,1.2,1],[-16,-12,1.4,1.4,1.1],[8,16,1.2,1.2,.9],[-20,20,2,1,1.1]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],woodM,1.25));   // tambores e caixas no quintal
-  [[-18,-18],[19,-17],[-21,3],[21,-3],[12,19]].forEach(p=>tree(p[0],p[1],1+Math.random()*.4,true));treeRing(H);
-  mapEnd(2,H,[0,22],[[-18,-6],[18,-8],[0,-20],[-4,-5],[4,-1],[-18,16],[18,18],[10,10],[-10,6]],fl3);
-  const env=skyEnv(SUN2,8,2.6),warm={env,sunDir:SUN2,sunC:0xffa860,sun:PP?2.4:2,hemiS:0xffd2a8,hemiG:0x6a553c,hemi:.5,fog:[new THREE.Color('#d6a070').convertSRGBToLinear(),30,170],turb:8,ray:2.6};
-  Object.assign(MAPS[2],warm);MAPS[2].flow=true;
+  wall(X0,Z1,X1,Z1,[{a:1.6,b:3,k:'j'},{a:4.4,b:5.8,k:'j'},{a:7.3,b:8.7,k:'p'},{a:10.2,b:11.6,k:'j'},{a:13,b:14.4,k:'j'}],sidingM);   // frente: porta no meio e 4 janelas
+  wall(X0,Z0,X1,Z0,[{a:3,b:4.4,k:'p'},{a:9,b:10.4,k:'j'},{a:12,b:13.4,k:'j'}],sidingM);                                              // fundos
+  wall(X0,Z0,X0,Z1,[{a:3.6,b:5,k:'j'}],sidingM);wall(X1,Z0,X1,Z1,[{a:2.5,b:3.9,k:'j'},{a:6.6,b:8,k:'p'}],sidingM);                 // laterais
+  wall(-2,Z0,-2,Z1,[{a:4.4,b:5.8,k:'p'}],plankM);wall(-2,-5,X1,-5,[{a:4.2,b:5.6,k:'p'}],plankM);                                     // cômodos
+  const fp=new THREE.Mesh(new THREE.PlaneGeometry(W,D),plankM);fp.rotation.x=-Math.PI/2;fp.position.set(0,.012,(Z0+Z1)/2);fp.receiveShadow=true;MG.add(fp);   // assoalho
+  vis(0,WH,(Z0+Z1)/2,W+.3,.2,D+.3,plankM,0,true);                                                                                   // forro / piso do andar de cima
+  const U=3.2,y2=WH+.2;                                                                                                              // andar de cima (casca)
+  vis(0,y2,Z1-T/2,W,U,T,sidingM,3,true);vis(0,y2,Z0+T/2,W,U,T,sidingM,3,true);vis(X0+T/2,y2,(Z0+Z1)/2,T,U,D,sidingM,3,true);vis(X1-T/2,y2,(Z0+Z1)/2,T,U,D,sidingM,3,true);
+  const WPL=new THREE.PlaneGeometry(1,1),win=(x,y,z,ry)=>{const m=new THREE.Mesh(WPL,winM);m.scale.set(1.25,1.6,1);m.position.set(x,y,z);m.rotation.y=ry;MG.add(m)};
+  for(const x of[-6.5,-3.5,0,3.5,6.5])win(x,y2+1.7,Z1+.01,0);for(const x of[-5,0,5])win(x,y2+1.7,Z0-.01,Math.PI);
+  for(const z of[-7.5,-2.5]){win(X0-.01,y2+1.7,z,-Math.PI/2);win(X1+.01,y2+1.7,z,Math.PI/2)}
+  const rise=2.6,roofY=y2+U,half=D/2+.6,sl=Math.hypot(half,rise),ang=Math.atan2(rise,half);                                            // telhado de duas águas
+  for(const sd of[1,-1]){const r=new THREE.Mesh(new THREE.BoxGeometry(W+1.2,.14,sl),shingleM);r.position.set(0,roofY+rise/2,(Z0+Z1)/2+sd*half/2);r.rotation.x=sd*ang;r.castShadow=r.receiveShadow=true;MG.add(r);solids.push(r)}
+  const gab=new THREE.Shape();gab.moveTo(-D/2,0);gab.lineTo(D/2,0);gab.lineTo(0,rise);gab.closePath();
+  for(const x of[X0+.02,X1-.02]){const g=new THREE.Mesh(new THREE.ShapeGeometry(gab),new THREE.MeshStandardMaterial({color:0xdedbd2,roughness:.85,side:THREE.DoubleSide,envMapIntensity:.55}));g.rotation.y=Math.PI/2;g.position.set(x,roofY,(Z0+Z1)/2);g.castShadow=true;MG.add(g)}
+  vis(4.5,roofY-.5,-6,.9,rise+1.2,.9,plainCon,0,true);                                                                                // chaminé
+  // varanda: piso, colunas, grade com passagem no meio, cobertura e lonas verdes penduradas
+  const pz=3.1;vis(0,0,pz/2,W+.4,.12,pz,plankM);
+  for(let x=X0;x<=X1+.01;x+=W/5)vis(x,0,pz-.1,.22,2.85,.22,sidingM,0,true);
+  for(const [a,b] of[[X0,-1.3],[1.3,X1]])B((a+b)/2,pz-.1,b-a,.1,.95,sidingM,2);B(X0-.1,pz/2,.1,pz,.95,sidingM,2);B(X1+.1,pz/2,.1,pz,.95,sidingM,2);
+  vis(0,2.85,pz/2,W+.8,.16,pz+.4,shingleM,0,true);vis(0,0,pz+.35,2.4,.18,.5,plankM);                                               // cobertura e degrau
+  for(const x of[-5.2,4.4]){const t=new THREE.Mesh(new THREE.PlaneGeometry(2.6,.85),tarpGreen);t.position.set(x,.5,pz-.02);t.castShadow=true;MG.add(t)}
+  // andaime do lado direito: tubos, tábuas no meio da altura e escada
+  const sc=[];for(const x of[X1+.8,X1+2.3])for(let z=Z0;z<=Z1+.01;z+=2.5)sc.push(x,z);
+  for(let k=0;k<sc.length;k+=2)vis(sc[k],0,sc[k+1],.07,6,.07,poleM);
+  vis(X1+1.55,3,(Z0+Z1)/2,1.7,.06,D,plankM);vis(X1+1.55,5.6,(Z0+Z1)/2,1.7,.06,D,plankM);
+  const st=new THREE.Mesh(new THREE.BoxGeometry(.9,.08,4.4),plankM);st.position.set(X1+1.55,1.5,-3);st.rotation.x=-.75;st.castShadow=true;MG.add(st);
+  // quintal
+  [[-2.5,6,3.2,.6,.9],[4,9,3.2,.6,.9],[-9,13,.6,3.2,.9],[13,-12,3.2,.6,.9]].forEach(a=>B(a[0],a[1],a[2],a[3],a[4],plainCon,2));      // blocos de concreto
+  B(1.2,5.2,1,1,2.9,plainCon,2);B(8.5,6.8,1,1,3.3,plainCon,2);B(-.4,5.5,2.4,1.4,1.1,plainCon,2);                                    // pilares e bloco grande
+  for(const [x,z] of[[3.6,4.6],[4.3,4.9],[-15,-3],[17,4]]){const b=new THREE.Mesh(new THREE.CylinderGeometry(.3,.3,.9,12),rustM);b.position.set(x,.45,z);b.castShadow=b.receiveShadow=true;MG.add(b);solids.push(b);boxes.push({minX:x-.3,maxX:x+.3,minZ:z-.3,maxZ:z+.3,h:.9})}
+  B(-13.5,8,4.2,1.9,1.2,tarpBlue);const carT=new THREE.Mesh(new THREE.SphereGeometry(1,20,12),tarpBlue);carT.scale.set(2.3,.95,1.05);carT.position.set(-13.5,.55,8);carT.castShadow=true;MG.add(carT);   // carro coberto
+  for(let k=0;k<(isTouch?40:90);k++){const r=new THREE.Mesh(lip,plainCon),z0=(Math.random()*2-1)*(H-2),x0=(Math.random()*2-1)*(H-2);if(Math.abs(x0)<9&&z0>-11&&z0<4)continue;   // entulho no chão
+    const sz=.12+Math.random()*.35;r.scale.set(sz,sz*.6,sz*(.6+Math.random()));r.position.set(x0,sz*.2,z0);r.rotation.set(Math.random(),Math.random()*3,Math.random());r.castShadow=r.receiveShadow=true;MG.add(r)}
+  [[-19,-15],[18,-17],[-21,3],[21,-3],[-19,18]].forEach(p=>tree(p[0],p[1],1+Math.random()*.4,true));treeRing(H);
+  mapEnd(2,H,[0,20],[[-18,-6],[18,-8],[0,-20],[-5,-5],[4,-2.5],[-18,16],[18,18],[10,12],[-8,4],[12,-16]],fl3);
+  const SUN4=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-36),THREE.MathUtils.degToRad(140));   // casa: dia claro e enevoado
+  Object.assign(MAPS[2],{env:skyEnv(SUN4,10,1.6),sunDir:SUN4,sunC:0xfff4e8,sun:PP?2.2:1.8,hemiS:0xe4e8ee,hemiG:0x7a7062,hemi:.55,fog:[new THREE.Color('#d9dbd6').convertSRGBToLinear(),35,170],turb:10,ray:1.6});MAPS[2].flow=true;
   const SUN3=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-34),THREE.MathUtils.degToRad(205));   // trincheira: sol forte, céu limpo (como a foto de referência)
   Object.assign(MAPS[1],{env:skyEnv(SUN3,2.2,1),sunDir:SUN3,sunC:0xfff0dc,sun:PP?2.6:2.1,hemiS:0xd6e4ff,hemiG:0x6a5640,hemi:.38,fog:[new THREE.Color('#b9c4cf').convertSRGBToLinear(),40,190],turb:2.2,ray:1});
   Object.assign(MAPS[0],{env:scene.environment,sunDir:SUN.clone(),sunC:0xffe9cc,sun:sun.intensity,hemiS:0xcfe0ff,hemiG:0x7a6248,hemi:HEMI.intensity,fog:[scene.fog.color.clone(),scene.fog.near,scene.fog.far],turb:2.5,ray:1.2});
