@@ -323,11 +323,15 @@ function tree(x,z,s,sh){                                             // árvore 
 }
 function vis(x,y,z,w,h,d,m,t,solid){                                 // peça só visual (não bloqueia o passo); `solid`: para as balas
   const S=m&&m.userData&&m.userData.soft,geo=S?softBox(w,h,d,S,x,z,t):new THREE.BoxGeometry(w,h,d);if(t&&!S)fitUV(geo,w,h,d,t);const o=new THREE.Mesh(geo,m);o.position.set(x,y+h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);if(solid)solids.push(o);return o}
-function ground(H,tile,gm){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
+function ground(H,tile,gm,farY){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
   const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),(gm||dirtM).clone()),uv=fl.geometry.attributes.uv;
   for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/tile,uv.getY(i)*2*H/tile);fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MG.add(fl);
-  const far=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.MeshStandardMaterial({color:new THREE.Color('#5c4a35').convertSRGBToLinear(),roughness:1}));
-  far.rotation.x=-Math.PI/2;far.position.y=-.03;MG.add(far);return fl;
+  let fg=new THREE.PlaneGeometry(400,400);
+  if(farY>0){const sh=new THREE.Shape([new THREE.Vector2(-200,-200),new THREE.Vector2(200,-200),new THREE.Vector2(200,200),new THREE.Vector2(-200,200)]);   // elevado: furo do tamanho do mapa
+    const h2=H-1;sh.holes.push(new THREE.Path([new THREE.Vector2(-h2,-h2),new THREE.Vector2(-h2,h2),new THREE.Vector2(h2,h2),new THREE.Vector2(h2,-h2)]));   // furo 1 m menor: cobre a beira arredondada dos blocos da borda
+    fg=new THREE.ShapeGeometry(sh);const u=fg.attributes.uv;for(let k=0;k<u.count;k++)u.setXY(k,u.getX(k)/tile,u.getY(k)/tile)}
+  const far=new THREE.Mesh(fg,farY>0?(gm||dirtM):new THREE.MeshStandardMaterial({color:new THREE.Color('#5c4a35').convertSRGBToLinear(),roughness:1}));   // elevado: mesma terra do mapa
+  far.rotation.x=-Math.PI/2;far.position.y=farY||-.03;MG.add(far);return fl;
 }
 function treeRing(H){for(let i=0;i<(isTouch?18:34);i++){const a=i/(isTouch?18:34)*6.28+Math.random()*.15,r=H+6+Math.random()*30;tree(Math.cos(a)*r,Math.sin(a)*r,.8+Math.random()*.8,r<H+14)}}
 function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={half:H,ceil:0,start,pick,solids:solids.slice(),boxes:boxes.slice()}}
@@ -335,14 +339,16 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   const keepS=solids.slice(),keepB=boxes.slice(),B=(x,z,w,d,h,m,t)=>boxes.push(addBox(x,z,w,d,h,m,t));
   // ----- trincheira: rede de valas de terra (~2 m) numa floresta queimada. O chão do jogo é plano, então as valas são
   // corredores no nível do chão e o "terreno de cima" são blocos de terra; árvores e troncos caídos ficam em cima deles.
-  solids.length=0;boxes.length=0;MG=MAP2;let H=30;const fl2=ground(H,5);
+  solids.length=0;boxes.length=0;MG=MAP2;let H=30;const fl2=ground(H,5,dirtM,2.05);   // trincheira: terreno de fora na altura do topo da terra (de cima, o chão continua até o horizonte)
   const C=2,N=30,G=[];for(let r=0;r<N;r++)G.push(new Array(N).fill(1));   // grade de 2 m: 1 = terra, 0 = vala
   const cv=(c0,r0,c1,r1)=>{for(let r=Math.min(r0,r1);r<=Math.max(r0,r1);r++)for(let c=Math.min(c0,c1);c<=Math.max(c0,c1);c++)G[r][c]=0};
   cv(2,25,8,25);cv(8,23,8,25);cv(8,23,14,23);cv(14,23,14,25);cv(14,25,20,25);cv(20,23,20,25);cv(20,23,27,23);   // linha sul em zigue-zague
   cv(2,14,9,14);cv(9,12,9,14);cv(9,12,16,12);cv(16,12,16,15);cv(16,15,23,15);cv(23,13,23,15);cv(23,13,27,13);     // linha do meio
   cv(2,4,10,4);cv(10,4,10,6);cv(10,6,18,6);cv(18,3,18,6);cv(18,3,27,3);                                             // linha norte
   cv(2,4,2,25);cv(27,3,27,23);cv(5,4,5,14);cv(13,6,13,12);cv(19,15,19,25);cv(23,3,23,7);cv(2,19,4,19);             // valas de ligação
-  cv(22,7,24,9);cv(4,18,6,20);                                                                                      // abrigos mais largos
+  cv(22,7,24,9);cv(4,18,6,20);
+  const SP=[[5,26,5,27,'z',1,5,28],[7,15,7,16,'z',1,7,17],[7,2,7,3,'z',-1,7,1],[25,18,26,18,'x',-1,24,18],[14,9,15,9,'x',1,16,9]];   // rampas: células, eixo, sentido, célula do topo
+  SP.forEach(a=>cv(a[0],a[1],a[2],a[3]));                                                                                      // abrigos mais largos
   const wx=c=>c*C-H,dirtW=mat((g,n)=>{g.fillStyle='#7a6248';g.fillRect(0,0,n,n);                                   // parede de terra com raízes e pedras
     blobs(g,n,80,.03,.14,['#6a5440','#8a7055','#5c4936'],.45);blobs(g,n,70,.005,.02,['#3e3226','#a08868'],.5);
     g.strokeStyle='rgba(50,38,26,.55)';for(let k=0;k<26;k++){g.lineWidth=n/(250+Math.random()*300);g.beginPath();let x=Math.random()*n,y=Math.random()*n;g.moveTo(x,y);for(let q=0;q<6;q++){x+=(Math.random()-.5)*n*.08;y+=n*.03;g.lineTo(x,y)}g.stroke()}
@@ -352,6 +358,10 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
     let h=1;while(r+h<N){let ok=true;for(let k=0;k<w;k++)if(!G[r+h][c+k]||used[r+h][c+k]){ok=false;break}if(!ok)break;h++}
     for(let a=0;a<h;a++)for(let k=0;k<w;k++)used[r+a][c+k]=1;
     B(wx(c)+w*C/2,wx(r)+h*C/2,w*C,h*C,1.85+Math.random()*.45,dirtW,1.6)}
+  const rps=SP.map(([c0,r0,c1,r1,ax,sg,tc,tr])=>{const tx=wx(tc)+1,tz=wx(tr)+1,tb=boxes.find(o=>tx>o.minX&&tx<o.maxX&&tz>o.minZ&&tz<o.maxZ),
+    R={x0:wx(c0),x1:wx(c1)+C,z0:wx(r0),z1:wx(r1)+C,ax,s:sg,h:tb?tb.h:2},g=new THREE.BoxGeometry(R.x1-R.x0,1,R.z1-R.z0,1,1,1),P3=g.attributes.position;
+    for(let k=0;k<P3.count;k++){const lx=P3.getX(k)+(R.x1-R.x0)/2,lz=P3.getZ(k)+(R.z1-R.z0)/2,t=ax==='x'?lx/(R.x1-R.x0):lz/(R.z1-R.z0);P3.setY(k,P3.getY(k)>0?Math.max(.03,R.h*(sg>0?t:1-t)):0)}   // caixa vira cunha
+    g.computeVertexNormals();const m=new THREE.Mesh(g,dirtW);m.position.set((R.x0+R.x1)/2,0,(R.z0+R.z1)/2);m.castShadow=m.receiveShadow=true;MG.add(m);solids.push(m);return R});
   const lip=rockGeo(),lip2=rockGeo();                               // torrões e pedras na borda das valas: quebram a parede reta
   for(let r=1;r<N-1;r++)for(let c=1;c<N-1;c++)if(!G[r][c])for(const [dc,dr] of[[1,0],[-1,0],[0,1],[0,-1]])if(G[r+dr][c+dc]&&Math.random()<.55){
     const m=new THREE.Mesh(Math.random()<.5?lip:lip2,dirtW),sz=.3+Math.random()*.5,x=wx(c)+C/2+dc*(C/2-.05)+(dr?(Math.random()-.5)*1.4:0),z=wx(r)+C/2+dr*(C/2-.05)+(dc?(Math.random()-.5)*1.4:0);
@@ -363,7 +373,7 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   // floresta queimada em cima da terra (instanciada: uma malha para todos os troncos e outra para os galhos)
   const top=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(G[r][c])top.push([c,r]);
   const TRS=[];for(let k=0;k<(isTouch?70:150);k++){const q=top[Math.random()*top.length|0];TRS.push([wx(q[0])+.2+Math.random()*1.6,wx(q[1])+.2+Math.random()*1.6,2.05])}
-  for(let k=0;k<(isTouch?40:90);k++){const a=Math.random()*6.28,r=H+2+Math.random()*28;TRS.push([Math.cos(a)*r,Math.sin(a)*r,0])}
+  for(let k=0;k<(isTouch?40:90);k++){const a=Math.random()*6.28,r=H+2+Math.random()*28;TRS.push([Math.cos(a)*r,Math.sin(a)*r,2.05])}
   const burnt=new THREE.MeshStandardMaterial({color:new THREE.Color('#5d5349').convertSRGBToLinear(),roughness:1,envMapIntensity:.35});
   const tr=new THREE.InstancedMesh(new THREE.CylinderGeometry(.06,.14,1,6),burnt,TRS.length),br=new THREE.InstancedMesh(new THREE.CylinderGeometry(.015,.04,1,4),burnt,TRS.length*3);
   const M4=new THREE.Matrix4(),Q=new THREE.Quaternion(),E=new THREE.Euler(),V=new THREE.Vector3(),S=new THREE.Vector3();
@@ -382,7 +392,7 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   P4(-8,27,0);P4(8,27,0);P4(-6,22,0);P4(6,22,0);
   const pylon=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pyl),new THREE.LineBasicMaterial({color:0x3a3d40}));pylon.position.set(-18,0,-55);MG.add(pylon);
   const pk=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(!G[r][c]&&(r+c)%7===0)pk.push([wx(c)+1,wx(r)+1]);
-  mapEnd(1,H,[wx(19)+1,wx(22)+1],pk.sort(()=>Math.random()-.5).slice(0,10),fl2);MAPS[1].flow=true;
+  mapEnd(1,H,[wx(19)+1,wx(22)+1],pk.sort(()=>Math.random()-.5).slice(0,10),fl2);MAPS[1].flow=true;MAPS[1].ramps=rps;
   // ----- casa: sobrado de madeira branca (dois andares, telhado cinza de duas águas, varanda com colunas, grade e lonas),
   // andaime ao lado, quintal de cascalho com entulho, blocos e pilares de concreto, tambores e um carro coberto por lona.
   // Só o térreo é jogável (não há escadas no jogo); o andar de cima é a casca com janelas.
@@ -458,7 +468,7 @@ let MAPI=0;
 function setMap(i){
   const m=MAPS[i];MAPI=i;MAPG.forEach((g,k)=>g.visible=k===i);
   solids.length=0;solids.push(...m.solids);boxes.length=0;boxes.push(...m.boxes);HALF=m.half;CEIL=m.ceil;
-  PICK_PTS.length=0;PICK_PTS.push(...m.pick);
+  PICK_PTS.length=0;PICK_PTS.push(...m.pick);RAMPS=m.ramps||[];
   scene.environment=m.env;scene.fog.color.copy(m.fog[0]);scene.fog.near=m.fog[1];scene.fog.far=m.fog[2];
   if(SKY){const u=SKY.material.uniforms;u.sunPosition.value.copy(m.sunDir);u.turbidity.value=m.turb;u.rayleigh.value=m.ray}
   sun.position.copy(m.sunDir).multiplyScalar(50);sun.color.set(m.sunC);sun.intensity=m.sun;HEMI.color.set(m.hemiS);HEMI.groundColor.set(m.hemiG);HEMI.intensity=m.hemi;
@@ -472,7 +482,9 @@ function flowUpdate(dt){const m=MAPS[MAPI];if(!m.flow)return;FF.t-=dt;if(FF.t>0)
   if(FF.key!==key){FF.key=key;FF.n=n;FF.H=H;FF.d=new Int16Array(n*n);FF.q=new Int32Array(n*n);FF.wk=new Uint8Array(n*n);
     for(let j=0;j<n;j++)for(let i=0;i<n;i++)FF.wk[j*n+i]=inBox(i-H+.5,j-H+.5,.45)?0:1}
   const d=FF.d,q=FF.q,wk=FF.wk;d.fill(-1);const pi=Math.max(0,Math.min(n-1,Math.floor(P.x+H))),pj=Math.max(0,Math.min(n-1,Math.floor(P.z+H)));
-  let h=0,t=0;q[t++]=pj*n+pi;d[pj*n+pi]=0;
+  let h=0,t=0;if(wk[pj*n+pi]){q[t++]=pj*n+pi;d[pj*n+pi]=0}
+  else for(let b=-6;b<=6;b++)for(let a=-6;a<=6;a++){const x=pi+a,y=pj+b;if(x<0||y<0||x>=n||y>=n)continue;const k=y*n+x;if(wk[k]&&d[k]<0){d[k]=Math.round(Math.hypot(a,b));q[t++]=k}}   // em cima da terra: parte das valas por perto
+  if(t>1){const o=Array.from(q.subarray(0,t)).sort((x,y)=>d[x]-d[y]);q.set(o)}
   while(h<t){const c=q[h++],i=c%n,j=(c-i)/n;for(const [a,b] of[[1,0],[-1,0],[0,1],[0,-1]]){const x=i+a,y=j+b;if(x<0||y<0||x>=n||y>=n)continue;const k=y*n+x;if(d[k]<0&&wk[k]){d[k]=d[c]+1;q[t++]=k}}}}
 function flowDir(x,z){if(!FF.d||FF.key!==MAPI+':'+Math.ceil(2*HALF))return null;const n=FF.n,H=FF.H,i=Math.floor(x+H),j=Math.floor(z+H);
   let best=null,bd=1e9;for(let b=-1;b<=1;b++)for(let a=-1;a<=1;a++){if(!a&&!b)continue;const X=i+a,Y=j+b;if(X<0||Y<0||X>=n||Y>=n)continue;const v=FF.d[Y*n+X];
@@ -481,8 +493,13 @@ function flowDir(x,z){if(!FF.d||FF.key!==MAPI+':'+Math.ceil(2*HALF))return null;
 function seeLine(ax,az,bx,bz){const L=Math.hypot(bx-ax,bz-az),n=Math.ceil(L/.5);for(let k=1;k<n;k++){const t=k/n;if(inBox(ax+(bx-ax)*t,az+(bz-az)*t,.15))return false}return true}
 function inBox(x,z,r){for(const o of boxes)if(x>o.minX-r&&x<o.maxX+r&&z>o.minZ-r&&z<o.maxZ+r)return true;return false}
 
-function resolve(p,r){
-  for(const o of boxes){
+// chão com altura: rampas (RAMPS do mapa atual) e topo de blocos; quem está a até 45 cm do topo de um bloco sobe nele
+let RAMPS=[];
+function rampH(x,z){let g=0;for(const r of RAMPS)if(x>r.x0&&x<r.x1&&z>r.z0&&z<r.z1){const t=r.ax==='x'?(x-r.x0)/(r.x1-r.x0):(z-r.z0)/(r.z1-r.z0),hh=r.h*(r.s>0?t:1-t);if(hh>g)g=hh}return g}
+function groundH(x,z,y){let g=rampH(x,z);if(g>y+.6)g=0;
+  for(const o of boxes)if(o.h>g&&o.h<=y+.45&&x>o.minX&&x<o.maxX&&z>o.minZ&&z<o.maxZ)g=o.h;return g}
+function resolve(p,r,y){
+  for(const o of boxes){if(o.h<=(y||0)+.45)continue;   // degrau: dá para pisar
     const cx=Math.max(o.minX,Math.min(p.x,o.maxX)),cz=Math.max(o.minZ,Math.min(p.z,o.maxZ));
     const dx=p.x-cx,dz=p.z-cz,d2=dx*dx+dz*dz;
     if(d2<r*r){
@@ -629,7 +646,7 @@ gun.position.set(.26,-.24,-.5);camera.add(gun);
 
 // ---------- estado ----------
 let MAG=15,RL=1.1;
-const P={x:0,y:0,z:22,vy:0};
+const P={x:0,y:0,z:22,vy:0,gnd:true};   // gnd: pés no chão (ou no topo de um bloco/rampa)
 let yaw=0,pitch=0,hp=100,ammo=MAG,reserve=45,score=0,wave=0,wt=0,spawning=false,moveAmt=0,stepT=0;
 let armor=0,gren=0,grenCD=0;const GMAX=3,GR=6;
 let scopeLv=0,ads=false,adsK=0,crouch=false,crK=0,spK=0,swing=0,prevSlot=2,gHold=-1,cur=2,money=800,bestW=0,contW=0,contS=0,wantCont=false,cw=null,own={glock:1,knife:1},st={},eq={1:null,2:'glock',3:'knife'};
@@ -1448,7 +1465,7 @@ function enemyReload(e){
 // inimigo só atira se enxergar o jogador: raio dos olhos dele até o peito (ou, se o peito estiver coberto, até a cabeça)
 // contra paredes, caixas, telhados e valas. Sem isso, tiros de trás das paredes denunciavam onde ele estava.
 const _sr=new THREE.Raycaster(),_so=new THREE.Vector3(),_sd=new THREE.Vector3();
-function sightTo(e,y){const ey=1.5-.4*(e.wc||0);_so.set(e.x,ey,e.z);_sd.set(P.x-e.x,y-ey,P.z-e.z);const L=_sd.length();if(L<.5)return true;
+function sightTo(e,y){const ey=(e.y||0)+1.5-.4*(e.wc||0);_so.set(e.x,ey,e.z);_sd.set(P.x-e.x,y-ey,P.z-e.z);const L=_sd.length();if(L<.5)return true;
   _sd.multiplyScalar(1/L);_sr.set(_so,_sd);_sr.far=L-.35;return !_sr.intersectObjects(solids,false).length}
 function canSee(e){const chest=P.y+1.3-.5*crK,head=camera.position.y-.05;e.aimY=sightTo(e,chest)?chest:sightTo(e,head)?head:null;return e.aimY!==null}
 let ESHOT=0;   // tiros dos inimigos (só para o ?debug)
@@ -1511,7 +1528,7 @@ function stepRag(d){
   for(let it=0;it<8;it++){
     for(const s of d.c){const a=s.a.c,b=s.b.c;_ra.subVectors(b,a);const L=_ra.length()||1e-6;if(s.min&&L>=s.L)continue;const k=(L-s.L)/L*.5;a.addScaledVector(_ra,k);b.addScaledVector(_ra,-k)}
     for(const k in d.p){const q=d.p[k],c=q.c,r=q.r,Lw=HALF-r;
-      if(c.y<r)c.y=r;
+      {const gr=rampH(c.x,c.z)+r;if(c.y<gr)c.y=gr}
       c.x=Math.max(-Lw,Math.min(Lw,c.x));c.z=Math.max(-Lw,Math.min(Lw,c.z));
       for(const o of boxes){if(c.y-r<o.h&&c.x>o.minX-r&&c.x<o.maxX+r&&c.z>o.minZ-r&&c.z<o.maxZ+r){   // sai pela face mais próxima
         const a1=c.x-o.minX+r,a2=o.maxX+r-c.x,b1=c.z-o.minZ+r,b2=o.maxZ+r-c.z,up=o.h+r-c.y,m=Math.min(a1,a2,b1,b2,up);
@@ -1592,7 +1609,7 @@ function shoot(){
   ejectShell(ep,new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion),new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion),cw.id==='awp'||cw.id==='deagle');
   boom(mp,0x8a8a8a,.12,.9,.22,.6);
   const ray=new THREE.Raycaster();
-  const sp=(cw.sp+moveAmt*.014+(P.y>0?.03:0))*(1-.65*adsK)*(1-.3*crK)*(1+.8*spK);   // mirando pela arma: bem mais preciso
+  const sp=(cw.sp+moveAmt*.014+(P.gnd?0:.03))*(1-.65*adsK)*(1-.3*crK)*(1+.8*spK);   // mirando pela arma: bem mais preciso
   pitch=Math.min(1.45,pitch+cw.rc*(.6+Math.random()*.8));yaw+=(Math.random()-.5)*.01;
   let hsHit=false;
   for(let pi=0;pi<cw.n;pi++){
@@ -1744,7 +1761,7 @@ function reset(){
   if(!wantCont)startKit();                                          // partida nova (onda 1): volta ao inventário inicial
   hp=100;score=wantCont?contS:0;wave=wantCont?contW:0;wantCont=false;spawning=false;reloading=false;refill();load(eq[1]?1:2);
   pickups.forEach(p=>scene.remove(p.g));pickups.length=0;holes.forEach(h=>scene.remove(h));holes.length=0;dying.forEach(clearRag);dying.length=0;fx.forEach(f=>scene.remove(f.m));fx.length=0;
-  P.x=MAPS[MAPI].start[0];P.z=MAPS[MAPI].start[1];P.y=0;P.vy=0;yaw=0;pitch=0;needReset=false;crouch=false;crK=spK=0;$('wv').textContent='Onda 1';
+  P.x=MAPS[MAPI].start[0];P.z=MAPS[MAPI].start[1];P.y=0;P.vy=0;P.gnd=true;yaw=0;pitch=0;needReset=false;crouch=false;crK=spK=0;$('wv').textContent='Onda 1';
 }
 
 // ---------- atualização ----------
@@ -1753,15 +1770,16 @@ function update(dt){
   let mx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+jv.x,mz=(keys.KeyW?1:0)-(keys.KeyS?1:0)-jv.y;
   const l=Math.hypot(mx,mz);if(l>1){mx/=l;mz/=l}
   moveAmt=Math.min(l,1);
-  if(l>.1&&P.y===0){stepT+=dt;if(stepT>.5/(1+.35*spK)*(1+.5*crK)){stepT=0;stepSnd()}}
-  const run=(keys.ShiftLeft||keys.ShiftRight||(isTouch&&Math.hypot(jv.x,jv.y)>.95))&&mz>.5&&!crouch&&!ads&&!firing&&gHold<0&&P.y===0;   // celular: joystick no fim corre
+  if(l>.1&&P.gnd){stepT+=dt;if(stepT>.5/(1+.35*spK)*(1+.5*crK)){stepT=0;stepSnd()}}
+  const run=(keys.ShiftLeft||keys.ShiftRight||(isTouch&&Math.hypot(jv.x,jv.y)>.95))&&mz>.5&&!crouch&&!ads&&!firing&&gHold<0&&P.gnd;   // celular: joystick no fim corre
   spK+=((run?1:0)-spK)*Math.min(1,dt*8);crK+=((crouch?1:0)-crK)*Math.min(1,dt*10);
   const sp=(cw.k?4.8:4.2)*(1-.35*adsK)*(1+.45*spK)*(1-.5*crK),fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
   P.x+=(fx*mz+rx*mx)*sp*dt;P.z+=(fz*mz+rz*mx)*sp*dt;
-  resolve(P,.45);
-  if(keys.Space&&P.y===0){if(crouch)crouch=false;else P.vy=7}   // agachado, o espaço levanta
-  P.vy-=20*dt;P.y+=P.vy*dt;if(P.y<=0){P.y=0;P.vy=0}
-  bobT+=dt*(l>.1&&P.y===0?7+3*spK-2.5*crK:0);
+  resolve(P,.45,P.y);
+  if(keys.Space&&P.gnd){if(crouch)crouch=false;else P.vy=7}   // agachado, o espaço levanta
+  const gh=groundH(P.x,P.z,P.y);P.vy-=20*dt;P.y+=P.vy*dt;
+  if(P.y<=gh||(P.vy<=0&&P.gnd&&P.y-gh<.3)){P.y=gh;P.vy=0;P.gnd=true}else P.gnd=false;   // gruda no chão ao descer rampa; sai da beira e cai
+  bobT+=dt*(l>.1&&P.gnd?7+3*spK-2.5*crK:0);
   updateGrens(dt);grenCD-=dt;
   if(gHold>=0){const t0=gHold;gHold+=dt;if(t0<GARM&&gHold>=GARM)clk(900,.06)}   // clique do pino
   cool-=dt;kick=Math.max(0,kick-dt*8);swing=Math.max(0,swing-dt*5);flashT-=dt;hmT-=dt;dmgA=Math.max(0,dmgA-dt*2.2);
@@ -1817,8 +1835,9 @@ function update(dt){
       e.wc=(e.wc||0)+((e.crouch?1:0)-(e.wc||0))*Math.min(1,dt*4);slow=(1-.45*e.wc)*(1-(e.ws||0));
     }
     e.x+=vx*e.speed*slow*dt;e.z+=vz*e.speed*slow*dt;
-    const p={x:e.x,z:e.z};resolve(p,.5);e.x=p.x;e.z=p.z;
-    e.g.position.set(e.x,e.mx?0:Math.abs(Math.sin(e.ph*7))*.035,e.z);
+    const p={x:e.x,z:e.z};resolve(p,.5,e.y||0);e.x=p.x;e.z=p.z;
+    const eg=groundH(e.x,e.z,e.y||0);e.y=Math.max(eg,(e.y||0)-dt*7);
+    e.g.position.set(e.x,e.y+(e.mx?0:Math.abs(Math.sin(e.ph*7))*.035),e.z);
     e.g.rotation.y=Math.atan2(dx,dz);
     if(e.mx){                                                        // 3D: mistura correr/parado nas pernas; tronco sempre mirando
       const A=e.A,sp=Math.hypot(vx,vz)*e.speed,k=Math.min(1,sp/1.5),f=(vx*dx+vz*dz)/d;   // f<0: recuando de costas
@@ -1859,7 +1878,7 @@ function update(dt){
   $('rl').textContent=reloading?'recarregando':(!cw.k&&ammo===0&&reserve===0?'sem munição':'');
   $('rbar').classList.toggle('on',reloading||gHold>=0);$('rbar').firstElementChild.style.width=((gHold>=0?Math.min(1,gHold/GFULL):rp)*100)+'%';   // com a granada: força do arremesso
   const low=!cw.k&&ammo<=Math.ceil(MAG*.3);$('ammo').classList.toggle('low',low);$('cross').classList.toggle('low',low);
-  $('cross').style.transform='translate(-50%,-50%) scale('+(1+moveAmt*.4+(P.y>0?.5:0)+kick*.5).toFixed(2)+')';
+  $('cross').style.transform='translate(-50%,-50%) scale('+(1+moveAmt*.4+(P.gnd?0:.5)+kick*.5).toFixed(2)+')';
   $('dmg').style.opacity=dmgA;
   $('arf').style.width=armor+'%';$('art').textContent='Colete '+Math.ceil(armor);$('arb').classList.toggle('hide',armor<=0);
   $('gn').textContent=gren?'Granadas '+gren:'';
@@ -1983,7 +2002,7 @@ $('menub').onclick=()=>{save();if(document.pointerLockElement)document.exitPoint
 $('newb').onclick=()=>{wipe();wantCont=false;$('play').click()};
 loadSave();load(2);setBody(BMODE,true);showTitle();loadSoldier();
 if(/[?&]debug/.test(location.search))window.__g={snd:async(code,sec)=>{const o=new OfflineAudioContext(2,44100*(sec||2),44100),k=[ac,MIX];ac=o;MIX=null;try{eval(code)}catch(e){ac=k[0];MIX=k[1];return 'erro: '+e.message}const st=ac.currentTime;ac=k[0];MIX=k[1];const b=await o.startRendering(),d=b.getChannelData(0),r=b.getChannelData(1);let pk=0,sq=0,last=0;for(let i=0;i<d.length;i++){const a=Math.max(Math.abs(d[i]),Math.abs(r[i]));pk=Math.max(pk,a);sq+=d[i]*d[i];if(a>.01)last=i}let l2=0,r2=0;for(let i=0;i<d.length;i++){l2+=d[i]*d[i];r2+=r[i]*r[i]}return {pico:+pk.toFixed(3),rms:+Math.sqrt(sq/d.length).toFixed(4),dura:+(last/44100).toFixed(2),esq_dir:+(Math.sqrt(l2/(r2||1e-9))).toFixed(2)}},tiros:()=>ESHOT,mov:()=>({y:+camera.position.y.toFixed(2),crouch,crK:+crK.toFixed(2),spK:+spK.toFixed(2),x:+P.x.toFixed(2),z:+P.z.toFixed(2)}),mortos:()=>dying.map(d=>[+d.t.toFixed(1),+(d.p.H?d.p.H.c.y:0).toFixed(2)]),ffd:()=>enemies.map(e=>{if(!FF.d)return null;const n=FF.n,H=FF.H;return FF.d[Math.floor(e.z+H)*n+Math.floor(e.x+H)]}),aim:v=>{ads=v;return {fs:cw&&MDL[cw.id]&&MDL[cw.id].tpl?+frontSight().toFixed(3):null,adsK:+adsK.toFixed(2),fov:+camera.fov.toFixed(1),gun:[gun.position.x,gun.position.y,gun.position.z].map(n=>+n.toFixed(3))}},bloodFx,splat,equip,scope:()=>{toggleScope();return {scopeLv,fov:+camera.fov.toFixed(1),on:scoped(),gun:gun.visible}},gr:{down:()=>grenDown(),up:()=>grenUp(),set:n=>{gren=n},st:()=>({cur,gren,gHold:+gHold.toFixed(2),cw:cw.id,voando:grens.length})},ver:async(id,l)=>{for(let i=0;i<80&&(!VA||Object.values(MDL).some(m=>!m.tpl));i++)await new Promise(r=>setTimeout(r,250));GOD=true;if(!playing)$('play').click();enemies.forEach(e=>{e.x=-25;e.z=-25;e.speed=0;e.fire=999});if(id){stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)}if(l)camera.setViewOffset(innerWidth,innerHeight,l[0]*innerWidth,l[1]*innerHeight,l[2]*innerWidth,l[3]*innerHeight);else camera.clearViewOffset();await new Promise(r=>setTimeout(r,250))},GRIP,lupa:(x,y,w,h)=>{const W=innerWidth,H=innerHeight;if(x==null)camera.clearViewOffset();else camera.setViewOffset(W,H,x*W,y*H,w*W,h*H)},va:()=>VA,viewArms,MDL,eqId:id=>{stash();own[id]=1;st[id]=st[id]||{a:WP[id].mag,r:WP[id].res};eq[WP[id].slot]=id;load(WP[id].slot)},rebuild:()=>{for(const k in MDL)if(MDL[k].tpl){const o=MDL[k].tpl.children[0].children[0];MDL[k].tpl=null;prepWeapon(MDL[k],o)}buildGun(cw)},god:v=>{GOD=v},sold:()=>SOLD,scene,renderer,camera,gun,GM,EM,sl,gl,enemies,hsFx,kill,
-  pickups,tp:(x,z)=>{P.x=x;P.z=z},setHp:v=>{hp=v},
+  pickups,tp:(x,z,yw)=>{P.x=x;P.z=z;if(yw!==undefined){yaw=yw;pitch=0}},setHp:v=>{hp=v},
   relAt:p=>{if(!reloading){ammo=0;doReload()}RFZ=p},relGo:()=>{RFZ=-1}};   // inspeção pelo console
 requestAnimationFrame(loop);
 })();
