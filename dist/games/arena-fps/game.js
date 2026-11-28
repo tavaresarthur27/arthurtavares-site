@@ -180,6 +180,7 @@ const conM=mat((g,n)=>{
 function ctex(fn){const c=mkC(128);fn(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;t.anisotropy=8;return t}
 const camoT=ctex(g=>{g.fillStyle='#46513a';g.fillRect(0,0,128,128);['#2f3a29','#6b6a4a','#222a1f'].forEach(c=>{g.fillStyle=c;for(let i=0;i<14;i++){g.beginPath();g.ellipse(Math.random()*128,Math.random()*128,8+Math.random()*16,5+Math.random()*10,Math.random()*3,0,6.283);g.fill()}})});
 
+wallM.userData.soft={r:.1,a:.03,s:.8};conM.userData.soft={r:.07,a:.015,s:.6};woodM.userData.soft={r:.03,a:0,s:1.25};   // muros, concreto e caixotes sem quinas vivas (ver softBox)
 // ---------- mapas ----------
 // MAP1 (arena), MAP2 (trincheira) e MAP3 (casa) — os dois últimos são do modo bodycam — ficam na cena; setMap() mostra um
 // e troca colisões, itens, sol, céu e névoa.
@@ -209,8 +210,31 @@ function fitUV(geo,w,h,d,t){
   for(let f=0;f<6;f++)for(let k=0;k<4;k++){const i=f*4+k;uv.setXY(i,uv.getX(i)*Math.max(1,Math.round(dims[f][0]/t)),uv.getY(i)*Math.max(1,Math.round(dims[f][1]/t)))}
   uv.needsUpdate=true;
 }
+// formas menos quadradas nos mapas: o material diz como (`m.userData.soft={r,a,s}`) e a caixa vira uma peça com as bordas de
+// cima e os cantos arredondados (raio r) e a superfície irregular (amplitude a, ruído pela posição no mundo, então peças
+// vizinhas continuam), dividida a cada s metros. A colisão continua sendo a caixa (o desvio visual é de poucos centímetros).
+const nz3=(x,y,z,k)=>Math.sin(x*1.7+z*.9+k)*.5+Math.sin(z*2.3-y*1.1+x*.4+k*2.1)*.3+Math.sin(x*4.1+y*3.7+z*2.9+k*.7)*.2;
+function softBox(w,h,d,S,ox,oz,t){
+  const st=S.s*(isTouch?1.6:1),sg=n=>Math.max(3,Math.min(60,Math.round(n/st)));
+  const geo=new THREE.BoxGeometry(w,h,d,sg(w),sg(h),sg(d)),P=geo.attributes.position,N=geo.attributes.normal,v=new THREE.Vector3(),c=new THREE.Vector3(),o=new THREE.Vector3();
+  const r=Math.min(S.r,w/2-.01,d/2-.01,h-.02),hx=w/2-r,hz=d/2-r,hy=h/2-r;
+  for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i);c.set(Math.max(-hx,Math.min(hx,v.x)),Math.min(hy,v.y),Math.max(-hz,Math.min(hz,v.z)));o.subVectors(v,c);
+    if(o.lengthSq()>1e-8){o.setLength(r);v.copy(c).add(o);N.setXYZ(i,o.x/r,o.y/r,o.z/r)}   // canto arredondado: normal exata
+    if(S.a){const wxp=v.x+ox,wzp=v.z+oz,up=(v.y+h/2)/h;                                     // irregular, preso ao chão embaixo
+      v.x+=nz3(wxp,v.y,wzp,1)*S.a*up;v.z+=nz3(wzp,v.y,wxp,2)*S.a*up;v.y+=nz3(wxp*.8,v.y,wzp*.8,3)*S.a*.6*up*up}
+    P.setXYZ(i,v.x,v.y,v.z)}
+  if(t){const uv=geo.attributes.uv,dims=[[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]],ix=geo.index.array;   // textura sem esticar, face por face
+    geo.groups.forEach((g,f)=>{const seen=new Set();for(let k=g.start;k<g.start+g.count;k++){const q=ix[k];if(seen.has(q))continue;seen.add(q);
+      uv.setXY(q,uv.getX(q)*Math.max(1,Math.round(dims[f][0]/t)),uv.getY(q)*Math.max(1,Math.round(dims[f][1]/t)))}})}
+  return geo;
+}
+function rockGeo(){                                                  // pedra/torrão: icosaedro deformado (facetado)
+  const g=new THREE.IcosahedronGeometry(.6,1),P=g.attributes.position,v=new THREE.Vector3(),k=Math.random()*10;
+  for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i);v.multiplyScalar(1+nz3(v.x*3,v.y*3,v.z*3,k)*.32);P.setXYZ(i,v.x,v.y,v.z)}
+  g.computeVertexNormals();return g;
+}
 function addBox(x,z,w,d,h,m,t){
-  const geo=new THREE.BoxGeometry(w,h,d);fitUV(geo,w,h,d,t);
+  const S=m&&m.userData&&m.userData.soft,geo=S?softBox(w,h,d,S,x,z,t):new THREE.BoxGeometry(w,h,d);if(!S)fitUV(geo,w,h,d,t);
   const o=new THREE.Mesh(geo,m);
   o.position.set(x,h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);solids.push(o);
   return {minX:x-w/2,maxX:x+w/2,minZ:z-d/2,maxZ:z+d/2,h};
@@ -280,7 +304,7 @@ const sandM=mat((g,n)=>{g.fillStyle='#4f4632';g.fillRect(0,0,n,n);const R=4,bh=n
   for(let r=0;r<R;r++){const off=r%2?n/6:0;for(let c=-1;c<4;c++){const x=c*n/3+off,y=r*bh,b=150+Math.random()*25;
     g.fillStyle='rgb('+b+','+(b*.86|0)+','+(b*.62|0)+')';g.beginPath();g.ellipse(x+n/6,y+bh/2,n/6-3,bh/2-3,0,0,6.283);g.fill();
     g.strokeStyle='rgba(60,50,30,.5)';g.lineWidth=n/200;g.beginPath();g.moveTo(x+n/12,y+bh*.3);g.lineTo(x+n/12,y+bh*.7);g.stroke()}}
-  blobs(g,n,60,.01,.05,['#6b5a3c','#3f3524'],.35);grain(g,n,20)},6,{roughness:.95,envMapIntensity:.4});
+  blobs(g,n,60,.01,.05,['#6b5a3c','#3f3524'],.35);grain(g,n,20)},6,{roughness:.95,envMapIntensity:.4});sandM.userData.soft={r:.2,a:.07,s:.35};
 const plankM=mat((g,n)=>{const P=7,w=n/P;for(let i=0;i<P;i++){const b=105+Math.random()*30;   // tábuas velhas e acinzentadas
   g.fillStyle='rgb('+b+','+(b*.9|0)+','+(b*.78|0)+')';g.fillRect(i*w,0,w,n);for(let k=0;k<20;k++){g.fillStyle='rgba(40,32,24,'+(.1+Math.random()*.15)+')';g.fillRect(i*w+Math.random()*w,Math.random()*n,n/500+1,n*(.1+Math.random()*.4))}
   g.fillStyle='rgba(20,15,10,.7)';g.fillRect(i*w,0,n/180,n)}grain(g,n,20)},6,{roughness:.9,envMapIntensity:.35});
@@ -298,7 +322,7 @@ function tree(x,z,s,sh){                                             // árvore 
   t.position.set(x,0,z);t.rotation.y=Math.random()*6.28;t.traverse(o=>{if(o.isMesh)o.castShadow=!!sh});MG.add(t);
 }
 function vis(x,y,z,w,h,d,m,t,solid){                                 // peça só visual (não bloqueia o passo); `solid`: para as balas
-  const geo=new THREE.BoxGeometry(w,h,d);if(t)fitUV(geo,w,h,d,t);const o=new THREE.Mesh(geo,m);o.position.set(x,y+h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);if(solid)solids.push(o);return o}
+  const S=m&&m.userData&&m.userData.soft,geo=S?softBox(w,h,d,S,x,z,t):new THREE.BoxGeometry(w,h,d);if(t&&!S)fitUV(geo,w,h,d,t);const o=new THREE.Mesh(geo,m);o.position.set(x,y+h/2,z);o.castShadow=o.receiveShadow=true;MG.add(o);if(solid)solids.push(o);return o}
 function ground(H,tile,gm){                                             // chão do mapa (com oclusão assada) e terreno além da cerca
   const fl=new THREE.Mesh(new THREE.PlaneGeometry(2*H,2*H),(gm||dirtM).clone()),uv=fl.geometry.attributes.uv;
   for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*2*H/tile,uv.getY(i)*2*H/tile);fl.rotation.x=-Math.PI/2;fl.receiveShadow=true;MG.add(fl);
@@ -322,15 +346,15 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   const wx=c=>c*C-H,dirtW=mat((g,n)=>{g.fillStyle='#7a6248';g.fillRect(0,0,n,n);                                   // parede de terra com raízes e pedras
     blobs(g,n,80,.03,.14,['#6a5440','#8a7055','#5c4936'],.45);blobs(g,n,70,.005,.02,['#3e3226','#a08868'],.5);
     g.strokeStyle='rgba(50,38,26,.55)';for(let k=0;k<26;k++){g.lineWidth=n/(250+Math.random()*300);g.beginPath();let x=Math.random()*n,y=Math.random()*n;g.moveTo(x,y);for(let q=0;q<6;q++){x+=(Math.random()-.5)*n*.08;y+=n*.03;g.lineTo(x,y)}g.stroke()}
-    grain(g,n,26)},7,{roughness:1,envMapIntensity:.45});
+    grain(g,n,26)},7,{roughness:1,envMapIntensity:.45});dirtW.userData.soft={r:.5,a:.24,s:.5};   // terra: beira arredondada e parede irregular
   const used=G.map(r=>r.map(()=>0));                                 // junta a terra em retângulos (menos caixas para colisão e desenho)
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(!G[r][c]||used[r][c])continue;let w=1;while(c+w<N&&G[r][c+w]&&!used[r][c+w])w++;
     let h=1;while(r+h<N){let ok=true;for(let k=0;k<w;k++)if(!G[r+h][c+k]||used[r+h][c+k]){ok=false;break}if(!ok)break;h++}
     for(let a=0;a<h;a++)for(let k=0;k<w;k++)used[r+a][c+k]=1;
     B(wx(c)+w*C/2,wx(r)+h*C/2,w*C,h*C,1.85+Math.random()*.45,dirtW,1.6)}
-  const lip=new THREE.BoxGeometry(1,1,1);                            // torrões e pedras na borda das valas: quebram a parede reta
+  const lip=rockGeo(),lip2=rockGeo();                               // torrões e pedras na borda das valas: quebram a parede reta
   for(let r=1;r<N-1;r++)for(let c=1;c<N-1;c++)if(!G[r][c])for(const [dc,dr] of[[1,0],[-1,0],[0,1],[0,-1]])if(G[r+dr][c+dc]&&Math.random()<.55){
-    const m=new THREE.Mesh(lip,dirtW),sz=.3+Math.random()*.5,x=wx(c)+C/2+dc*(C/2-.05)+(dr?(Math.random()-.5)*1.4:0),z=wx(r)+C/2+dr*(C/2-.05)+(dc?(Math.random()-.5)*1.4:0);
+    const m=new THREE.Mesh(Math.random()<.5?lip:lip2,dirtW),sz=.3+Math.random()*.5,x=wx(c)+C/2+dc*(C/2-.05)+(dr?(Math.random()-.5)*1.4:0),z=wx(r)+C/2+dr*(C/2-.05)+(dc?(Math.random()-.5)*1.4:0);
     m.scale.set(sz,sz*(.6+Math.random()),sz);m.position.set(x,Math.random()<.5?sz*.3:1.9+Math.random()*.2,z);m.rotation.set(Math.random(),Math.random()*3,Math.random());m.castShadow=m.receiveShadow=true;MG.add(m)}
   [[3,25,'z'],[8,24,'x'],[16,15,'z'],[27,10,'x'],[13,9,'x'],[19,20,'x']].forEach(([c,r,ax])=>{for(let k=-2;k<=2;k++)   // tábuas de escoramento
     vis(wx(c)+C/2+(ax==='z'?k*.35:-.97),0,wx(r)+C/2+(ax==='x'?k*.35:-.97),ax==='z'?.3:.06,1.9,ax==='x'?.3:.06,plankM)});
@@ -372,12 +396,12 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
     blobs(g,n,26,.01,.04,['#9c968a','#b8b2a6'],.45);grain(g,n,14)},4,{roughness:.85,envMapIntensity:.55});
   const shingleM=mat((g,n)=>{const R=10,h=n/R;for(let r=0;r<R;r++){const off=r%2?n/12:0;for(let c=-1;c<7;c++){const v=92+Math.random()*26;g.fillStyle='rgb('+v+','+(v*1.02|0)+','+(v*1.05|0)+')';g.fillRect(c*n/6+off+1,r*h+1,n/6-2,h-2)}
     g.fillStyle='rgba(30,30,32,.5)';g.fillRect(0,(r+1)*h-2,n,2)}grain(g,n,16)},5,{roughness:.9,envMapIntensity:.4});
-  const plainCon=mat((g,n)=>{g.fillStyle='#7d7a72';g.fillRect(0,0,n,n);blobs(g,n,90,.02,.1,['#6f6c65','#8c8981','#64615b'],.45);blobs(g,n,160,.003,.012,['#4a4844'],.5);grain(g,n,22)},5,{roughness:.95,envMapIntensity:.35});
+  const plainCon=mat((g,n)=>{g.fillStyle='#7d7a72';g.fillRect(0,0,n,n);blobs(g,n,90,.02,.1,['#6f6c65','#8c8981','#64615b'],.45);blobs(g,n,160,.003,.012,['#4a4844'],.5);grain(g,n,22)},5,{roughness:.95,envMapIntensity:.35});plainCon.userData.soft={r:.07,a:.015,s:.6};
   const winT=fxTex(128,(x,n)=>{x.fillStyle='#e9e7e0';x.fillRect(0,0,n,n);const m=n*.1;x.fillStyle='#1d2228';x.fillRect(m,m,n-2*m,n-2*m);   // janela: moldura branca, vidro escuro em 6 painéis
     const gr=x.createLinearGradient(0,0,n,n);gr.addColorStop(0,'rgba(170,190,210,.35)');gr.addColorStop(.5,'rgba(60,70,80,.05)');gr.addColorStop(1,'rgba(150,170,190,.2)');x.fillStyle=gr;x.fillRect(m,m,n-2*m,n-2*m);
     x.fillStyle='#e9e7e0';x.fillRect(n/2-m*.3,m,m*.6,n-2*m);x.fillRect(m,n/3-m*.3,n-2*m,m*.6);x.fillRect(m,2*n/3-m*.3,n-2*m,m*.6)});
   const winM=new THREE.MeshStandardMaterial({map:winT,roughness:.4,metalness:.1,envMapIntensity:.6,polygonOffset:true,polygonOffsetFactor:-2});
-  const tarpBlue=new THREE.MeshStandardMaterial({color:new THREE.Color('#4a5866').convertSRGBToLinear(),roughness:.95,envMapIntensity:.4});
+  const tarpBlue=new THREE.MeshStandardMaterial({color:new THREE.Color('#4a5866').convertSRGBToLinear(),roughness:.95,envMapIntensity:.4});tarpBlue.userData.soft={r:.55,a:.07,s:.3};
   const tarpGreen=new THREE.MeshStandardMaterial({color:new THREE.Color('#58715f').convertSRGBToLinear(),roughness:.95,side:THREE.DoubleSide,envMapIntensity:.4});
   const fl3=ground(H,4,gravelM);
   [[0,-H-.15,2*H+.6,.3],[0,H+.15,2*H+.6,.3],[-H-.15,0,.3,2*H+.6],[H+.15,0,.3,2*H+.6]].forEach(a=>addBox(a[0],a[1],a[2],a[3],1.7,plankM,1.5));   // cerca
@@ -419,7 +443,7 @@ function mapEnd(i,H,start,pick,fl){bakeFloor(boxes,H,fl,fl.material);MAPS[i]={ha
   B(1.2,5.2,1,1,2.9,plainCon,2);B(8.5,6.8,1,1,3.3,plainCon,2);B(-.4,5.5,2.4,1.4,1.1,plainCon,2);                                    // pilares e bloco grande
   for(const [x,z] of[[3.6,4.6],[4.3,4.9],[-15,-3],[17,4]]){const b=new THREE.Mesh(new THREE.CylinderGeometry(.3,.3,.9,12),rustM);b.position.set(x,.45,z);b.castShadow=b.receiveShadow=true;MG.add(b);solids.push(b);boxes.push({minX:x-.3,maxX:x+.3,minZ:z-.3,maxZ:z+.3,h:.9})}
   B(-13.5,8,4.2,1.9,1.2,tarpBlue);const carT=new THREE.Mesh(new THREE.SphereGeometry(1,20,12),tarpBlue);carT.scale.set(2.3,.95,1.05);carT.position.set(-13.5,.55,8);carT.castShadow=true;MG.add(carT);   // carro coberto
-  for(let k=0;k<(isTouch?40:90);k++){const r=new THREE.Mesh(lip,plainCon),z0=(Math.random()*2-1)*(H-2),x0=(Math.random()*2-1)*(H-2);if(Math.abs(x0)<9&&z0>-11&&z0<4)continue;   // entulho no chão
+  for(let k=0;k<(isTouch?40:90);k++){const r=new THREE.Mesh(k%2?lip:lip2,plainCon),z0=(Math.random()*2-1)*(H-2),x0=(Math.random()*2-1)*(H-2);if(Math.abs(x0)<9&&z0>-11&&z0<4)continue;   // entulho no chão
     const sz=.12+Math.random()*.35;r.scale.set(sz,sz*.6,sz*(.6+Math.random()));r.position.set(x0,sz*.2,z0);r.rotation.set(Math.random(),Math.random()*3,Math.random());r.castShadow=r.receiveShadow=true;MG.add(r)}
   [[-19,-15],[18,-17],[-21,3],[21,-3],[-19,18]].forEach(p=>tree(p[0],p[1],1+Math.random()*.4,true));treeRing(H);
   mapEnd(2,H,[0,20],[[-18,-6],[18,-8],[0,-20],[-5,-5],[4,-2.5],[-18,16],[18,18],[10,12],[-8,4],[12,-16]],fl3);
