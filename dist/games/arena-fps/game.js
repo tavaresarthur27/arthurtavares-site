@@ -1661,7 +1661,8 @@ function frontSight(){
   for(let i=0;i<pts.length;i+=3)if(pts[i+2]<zf&&Math.abs(pts[i])<.025&&pts[i+1]>y)y=pts[i+1];
   return FS[cw.id]=y>-1e8?y:null;
 }
-const adsPos=()=>{const m=MDL[cw.id],b=cw.cat==='p'?ADS_P:ADS_R;if(m&&m.ads)return m.ads;const f=m&&m.tpl?frontSight():null;return f==null?b:{y:-f,z:b.z}};
+const adsPos=()=>{const m=MDL[cw.id],b=cw.cat==='p'?ADS_P:ADS_R,z=BODY&&cw.cat!=='p'?-.34:b.z;   // bodycam: câmera no peito, o fuzil fica mais à frente (senão a coronha tapa a lente)
+  if(m&&m.ads)return m.ads;const f=m&&m.tpl?frontSight():null;return f==null?{y:b.y,z}:{y:-f,z}};
 const canAds=()=>!!(cw&&!cw.k&&!cw.sc&&!cw.x2&&alive&&!reloading&&!paused);   // todas as armas de fogo menos a de luneta e as Berettas duplas
 function zoomBtn(){if(cw&&cw.sc)toggleScope();else if(canAds())ads=!ads}
 function toggleScope(){if(!cw||!cw.sc||!alive||reloading)return;scopeLv=(scopeLv+1)%3;clk(scopeLv?1300:700,.04)}
@@ -1795,7 +1796,7 @@ function update(dt){
     const a=Math.min(1,dt*11);bcYaw+=(yaw-bcYaw)*a;bcPitch+=(pitch-bcPitch)*a;
     camera.position.set(P.x+Math.cos(yaw)*.08,P.y+1.45-.5*crK+Math.abs(Math.sin(bobT))*(.06+.04*spK),P.z-Math.sin(yaw)*.08);
     camera.rotation.y=bcYaw+Math.sin(bobT*.5)*.018+(Math.random()-.5)*sh;camera.rotation.x=bcPitch+Math.abs(Math.sin(bobT))*.025+(Math.random()-.5)*sh;
-    camera.rotation.z=Math.sin(bobT*.5)*.035+(yaw-bcYaw)*.6+(Math.random()-.5)*sh;
+    camera.rotation.z=(Math.sin(bobT*.5)*.035+(yaw-bcYaw)*.6)*(1-.85*adsK)+(Math.random()-.5)*sh;   // mirando: quase sem rolagem
   }else{
     bcYaw=yaw;bcPitch=pitch;
     camera.position.set(P.x,P.y+1.7-.62*crK+Math.sin(bobT)*(.04+.03*spK),P.z);
