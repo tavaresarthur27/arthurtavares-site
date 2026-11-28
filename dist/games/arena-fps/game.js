@@ -1753,15 +1753,15 @@ function update(dt){
   let mx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+jv.x,mz=(keys.KeyW?1:0)-(keys.KeyS?1:0)-jv.y;
   const l=Math.hypot(mx,mz);if(l>1){mx/=l;mz/=l}
   moveAmt=Math.min(l,1);
-  if(l>.1&&P.y===0){stepT+=dt;if(stepT>.38/(1+.45*spK)*(1+.5*crK)){stepT=0;stepSnd()}}
+  if(l>.1&&P.y===0){stepT+=dt;if(stepT>.5/(1+.35*spK)*(1+.5*crK)){stepT=0;stepSnd()}}
   const run=(keys.ShiftLeft||keys.ShiftRight||(isTouch&&Math.hypot(jv.x,jv.y)>.95))&&mz>.5&&!crouch&&!ads&&!firing&&gHold<0&&P.y===0;   // celular: joystick no fim corre
   spK+=((run?1:0)-spK)*Math.min(1,dt*8);crK+=((crouch?1:0)-crK)*Math.min(1,dt*10);
-  const sp=(cw.k?7.4:6.2)*(1-.35*adsK)*(1+.6*spK)*(1-.5*crK),fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
+  const sp=(cw.k?4.8:4.2)*(1-.35*adsK)*(1+.45*spK)*(1-.5*crK),fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
   P.x+=(fx*mz+rx*mx)*sp*dt;P.z+=(fz*mz+rz*mx)*sp*dt;
   resolve(P,.45);
   if(keys.Space&&P.y===0){if(crouch)crouch=false;else P.vy=7}   // agachado, o espaço levanta
   P.vy-=20*dt;P.y+=P.vy*dt;if(P.y<=0){P.y=0;P.vy=0}
-  bobT+=dt*(l>.1&&P.y===0?9+4*spK-3*crK:0);
+  bobT+=dt*(l>.1&&P.y===0?7+3*spK-2.5*crK:0);
   updateGrens(dt);grenCD-=dt;
   if(gHold>=0){const t0=gHold;gHold+=dt;if(t0<GARM&&gHold>=GARM)clk(900,.06)}   // clique do pino
   cool-=dt;kick=Math.max(0,kick-dt*8);swing=Math.max(0,swing-dt*5);flashT-=dt;hmT-=dt;dmgA=Math.max(0,dmgA-dt*2.2);
